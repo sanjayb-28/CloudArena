@@ -1,0 +1,36 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+env/
+venv/
+.venv/
+
+# Tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# IDEs and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Docker
+*.log
+
+# Node-based tooling (future UI assets)
+node_modules/
+dist/
+build/
