@@ -41,16 +41,30 @@ def _ensure_schema(conn: Connection) -> None:
     conn.commit()
 
 
+def _resolve_sqlite_path(database_url: str) -> Path:
+    if database_url.startswith("sqlite:////"):
+        path_str = database_url.replace("sqlite:////", "/", 1)
+    elif database_url.startswith("sqlite:///"):
+        path_str = database_url.replace("sqlite:///", "", 1)
+    else:
+        raise ValueError(f"Unsupported database URL '{database_url}'")
+
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
 def init_db(database_url: str) -> None:
     """Initialize the SQLite database at the provided URL."""
 
     global _DB_PATH
-    if database_url.startswith("sqlite:///"):
-        path = Path(database_url.replace("sqlite:///", "", 1)).resolve()
-    else:
-        raise ValueError(f"Unsupported database URL '{database_url}'")
+    path = _resolve_sqlite_path(database_url)
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.touch()
+
     with sqlite3.connect(path) as conn:
         conn.execute("PRAGMA journal_mode=WAL;")
         _ensure_schema(conn)
