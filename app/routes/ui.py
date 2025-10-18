@@ -35,7 +35,7 @@ def _prepare_run_record(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/ui", response_class=HTMLResponse)
-async def ui_dashboard(request: Request, _: Dict[str, Any] = Depends(require_auth)) -> HTMLResponse:
+async def ui_dashboard(request: Request, user: Dict[str, Any] = Depends(require_auth)) -> HTMLResponse:
     recent_runs = [_prepare_run_record(run) for run in list_runs(limit=20)]
     return templates.TemplateResponse(
         "dashboard.html",
@@ -43,6 +43,7 @@ async def ui_dashboard(request: Request, _: Dict[str, Any] = Depends(require_aut
             "request": request,
             "runs": recent_runs,
             "error": None,
+            "user": user,
         },
     )
 
@@ -51,7 +52,7 @@ async def ui_dashboard(request: Request, _: Dict[str, Any] = Depends(require_aut
 async def ui_create_run(
     request: Request,
     goals: Optional[str] = Form(None),
-    _: Dict[str, Any] = Depends(require_auth),
+    user: Dict[str, Any] = Depends(require_auth),
 ):
     payload = run_routes.RunRequest(goals=goals or None)
     try:
@@ -64,6 +65,7 @@ async def ui_create_run(
                 "request": request,
                 "runs": recent_runs,
                 "error": exc.detail,
+                "user": user,
             },
             status_code=exc.status_code,
         )
@@ -76,7 +78,7 @@ async def ui_create_run(
 async def ui_run_detail(
     request: Request,
     run_id: str,
-    _: Dict[str, Any] = Depends(require_auth),
+    user: Dict[str, Any] = Depends(require_auth),
 ) -> HTMLResponse:
     record = get_run(run_id)
     if not record:
@@ -95,6 +97,7 @@ async def ui_run_detail(
             "run": prepared,
             "runbook": runbook,
             "events": events,
+            "user": user,
         },
     )
 
@@ -102,7 +105,7 @@ async def ui_run_detail(
 @router.post("/ui/runs/{run_id}/reports", response_class=HTMLResponse)
 async def ui_run_report(
     run_id: str,
-    _: Dict[str, Any] = Depends(require_auth),
+    user: Dict[str, Any] = Depends(require_auth),
 ) -> HTMLResponse:
     events = list_events(run_id)
     if not events:

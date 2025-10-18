@@ -17,6 +17,8 @@ def test_store_insert_and_list_events(tmp_path):
         resource="resource-1",
         artifacts_json="[]",
         payload={"status": "queued"},
+        summary="Inserted",
+        details_json='{"info": "test"}',
     )
 
     events = list_events("run-1")
@@ -29,3 +31,5 @@ def test_store_insert_and_list_events(tmp_path):
     assert record["status"] == "queued"
     assert record["severity"] == "low"
     assert record["resource"] == "resource-1"
+    assert record["summary"] == "Inserted"
+    assert record["details"] == {"info": "test"}

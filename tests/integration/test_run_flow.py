@@ -23,7 +23,18 @@ def client(monkeypatch):
     def fake_run_stratus(technique_id: str, adapter: str, params, timeout=None):
         return {"ok": True, "stdout": "stratus ok"}
 
-    def fake_post_event(run_id, event_type, payload, *, phase=None, severity=None, resource=None, artifacts=None):
+    def fake_post_event(
+        run_id,
+        event_type,
+        payload,
+        *,
+        phase=None,
+        severity=None,
+        resource=None,
+        artifacts=None,
+        summary=None,
+        details=None,
+    ):
         payload_with_type = dict(payload)
         payload_with_type.setdefault("event_type", event_type)
         status = payload_with_type.get("status") or phase
@@ -38,6 +49,8 @@ def client(monkeypatch):
             resource=resource,
             artifacts_json=artifacts_json,
             payload=payload_with_type,
+            summary=summary,
+            details_json=json.dumps(details) if details else None,
         )
 
     async def fake_require_auth(credentials=None):
@@ -54,7 +67,11 @@ def client(monkeypatch):
     app.dependency_overrides[reports_routes.require_auth] = lambda: {"sub": "test-user"}
     app.dependency_overrides[facts_routes.require_auth] = lambda: {"sub": "test-user"}
 
-    return TestClient(app)
+    test_client = TestClient(app)
+    try:
+        yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_run_flow_creates_events_and_report(client):

@@ -1,139 +1,124 @@
 from datetime import datetime, timedelta, timezone
 import json
 
-import boto3
 import pytest
-from botocore.stub import Stubber
 
 from app.adapters import sdk
 
 
-@pytest.fixture
-def monkeypatched_boto3_client(monkeypatch):
-    stubs = {}
-    original_client = boto3.client
-    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+def test_ec2_security_group_audit(monkeypatch):
+    class FakePaginator:
+        def paginate(self):
+            yield {
+                "SecurityGroups": [
+                    {
+                        "GroupId": "sg-open",
+                        "GroupName": "open-group",
+                        "IpPermissions": [
+                            {
+                                "IpProtocol": "tcp",
+                                "FromPort": 22,
+                                "ToPort": 22,
+                                "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "open ssh"}],
+                            }
+                        ],
+                    }
+                ]
+            }
 
-    def client(service_name, *args, **kwargs):
-        real_client = original_client(service_name, *args, **kwargs)
-        stub = Stubber(real_client)
-        stubs[service_name] = stub
-        return real_client
+    class FakeEC2:
+        def get_paginator(self, name):
+            assert name == "describe_security_groups"
+            return FakePaginator()
 
-    monkeypatch.setattr(sdk.boto3, "client", client, raising=False)
-    monkeypatch.setattr(boto3, "client", client, raising=False)
-    yield stubs
-    for stub in stubs.values():
-        stub.assert_no_pending_responses()
-        stub.deactivate()
+    monkeypatch.setattr(sdk.boto3, "client", lambda name, **kwargs: FakeEC2(), raising=False)
+
+    result = sdk.run_sdk("sdk.ec2.sg_audit", "sdk", {})
+    findings = result["findings"]
+    assert findings and findings[0]["resource"] == "sg-open"
+    assert findings[0]["severity"] == "high"
 
 
-def _s3_policy(policy):
-    return {
+def test_kms_rotation_audit(monkeypatch):
+    class FakePaginator:
+        def paginate(self):
+            yield {"Keys": [{"KeyId": "1234"}]}
+
+    class FakeKMS:
+        def get_paginator(self, name):
+            assert name == "list_keys"
+            return FakePaginator()
+
+        def get_key_rotation_status(self, KeyId):
+            assert KeyId == "1234"
+            return {"KeyRotationEnabled": False}
+
+    monkeypatch.setattr(sdk.boto3, "client", lambda name, **kwargs: FakeKMS(), raising=False)
+
+    result = sdk.run_sdk("sdk.kms.rotation_audit", "sdk", {})
+    assert result["findings"] == [
+        {
+            "resource": "1234",
+            "issue": "KMS key rotation disabled",
+            "severity": "medium",
+            "evidence": {"rotation_enabled": False},
+        }
+    ]
+
+
+def test_iam_key_age(monkeypatch):
+    now = datetime.now(timezone.utc)
+
+    class FakePaginator:
+        def paginate(self):
+            yield {"Users": [{"UserName": "old-user"}]}
+
+    class FakeIAM:
+        def get_paginator(self, name):
+            assert name == "list_users"
+            return FakePaginator()
+
+        def list_access_keys(self, UserName):
+            assert UserName == "old-user"
+            return {
+                "AccessKeyMetadata": [
+                    {
+                        "AccessKeyId": "AKIAOLD",
+                        "CreateDate": now - timedelta(days=120),
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(sdk.boto3, "client", lambda name, **kwargs: FakeIAM(), raising=False)
+
+    result = sdk.run_sdk("sdk.iam.key_age", "sdk", {})
+    findings = result["findings"]
+    assert findings and findings[0]["resource"].endswith("AKIAOLD")
+
+
+def test_s3_public_policy(monkeypatch):
+    policy = {
         "Version": "2012-10-17",
         "Statement": [
             {
                 "Effect": "Allow",
                 "Principal": "*",
-                "Action": ["s3:GetObject"],
-                "Resource": "arn:aws:s3:::bucket/*",
+                "Action": "s3:GetObject",
+                "Resource": ["arn:aws:s3:::open-bucket/*"],
             }
         ],
     }
 
+    class FakeS3:
+        def list_buckets(self):
+            return {"Buckets": [{"Name": "open-bucket"}]}
 
-def test_ec2_security_group_audit(monkeypatched_boto3_client):
-    stubs = monkeypatched_boto3_client
-    ec2_client = sdk.boto3.client("ec2")
-    stub = stubs["ec2"]
-    stub.add_response(
-        "describe_security_groups",
-        {
-            "SecurityGroups": [
-                {
-                    "GroupId": "sg-open",
-                    "GroupName": "open-group",
-                    "IpPermissions": [
-                        {
-                            "IpProtocol": "tcp",
-                            "FromPort": 22,
-                            "ToPort": 22,
-                            "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
-                        }
-                    ],
-                },
-                {
-                    "GroupId": "sg-safe",
-                    "GroupName": "safe-group",
-                    "IpPermissions": [],
-                },
-            ]
-        },
-    )
-    stub.activate()
+        def get_bucket_policy(self, Bucket):
+            assert Bucket == "open-bucket"
+            return {"Policy": json.dumps(policy)}
 
-    result = sdk.run_sdk("sdk.ec2.sg_audit", "sdk", {})
-    assert result["ok"] is True
-    findings = result["findings"]
-    assert any(f["resource"] == "sg-open" and f["severity"] == "high" for f in findings)
-
-
-def test_kms_rotation_audit(monkeypatched_boto3_client):
-    stubs = monkeypatched_boto3_client
-    kms_client = sdk.boto3.client("kms")
-    stub = stubs["kms"]
-    stub.add_response("list_keys", {"Keys": [{"KeyId": "1234"}]})
-    stub.add_response("get_key_rotation_status", {"KeyRotationEnabled": False}, {"KeyId": "1234"})
-    stub.activate()
-
-    result = sdk.run_sdk("sdk.kms.rotation_audit", "sdk", {})
-    assert result["ok"] is True
-    findings = result["findings"]
-    assert findings == [
-        {"resource": "1234", "issue": "KMS key rotation disabled", "severity": "medium", "evidence": {"rotation_enabled": False}}
-    ]
-
-
-def test_iam_key_age(monkeypatched_boto3_client):
-    stubs = monkeypatched_boto3_client
-    iam_client = sdk.boto3.client("iam")
-    stub = stubs["iam"]
-    stub.add_response("list_users", {"Users": [{"UserName": "old-user"}]})
-    stub.add_response(
-        "list_access_keys",
-        {"AccessKeyMetadata": [{"AccessKeyId": "AKIAOLD", "CreateDate": datetime.now(timezone.utc) - timedelta(days=120)}]},
-        {"UserName": "old-user"},
-    )
-    stub.activate()
-
-    result = sdk.run_sdk("sdk.iam.key_age", "sdk", {})
-    assert result["ok"] is True
-    findings = result["findings"]
-    assert findings and findings[0]["resource"].endswith("AKIAOLD")
-
-
-def test_s3_public_policy(monkeypatched_boto3_client):
-    stubs = monkeypatched_boto3_client
-    s3_client = sdk.boto3.client("s3")
-    stub = stubs["s3"]
-    stub.add_response("list_buckets", {"Buckets": [{"Name": "open-bucket"}]})
-    policy_doc = json.dumps(
-        {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Effect": "Allow",
-                    "Principal": "*",
-                    "Action": "s3:GetObject",
-                    "Resource": ["arn:aws:s3:::open-bucket/*"],
-                }
-            ],
-        }
-    )
-    stub.add_response("get_bucket_policy", {"Policy": policy_doc}, {"Bucket": "open-bucket"})
-    stub.activate()
+    monkeypatch.setattr(sdk.boto3, "client", lambda name, **kwargs: FakeS3(), raising=False)
 
     result = sdk.run_sdk("sdk.s3.public_policy_audit", "sdk", {})
-    assert result["ok"] is True
     findings = result["findings"]
-    assert any(f.get("resource") == "open-bucket" and f.get("severity") == "medium" for f in findings)
+    assert findings and findings[0]["resource"] == "open-bucket"

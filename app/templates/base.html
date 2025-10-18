@@ -82,6 +82,14 @@
   <body>
     <header>
       <h1>CloudArena Command Center</h1>
+      <div style="margin-top: 0.3rem;">
+        {% if user %}
+          <span style="margin-right: 1rem;">Signed in as {{ user.name or user.email or user.sub }}</span>
+          <a href="/logout" style="color: #f97316;">Log out</a>
+        {% else %}
+          <a href="/login">Log in</a>
+        {% endif %}
+      </div>
     </header>
     <main>
       {% block content %}{% endblock %}

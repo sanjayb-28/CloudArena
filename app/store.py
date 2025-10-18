@@ -34,10 +34,20 @@ def _ensure_schema(conn: Connection) -> None:
             resource TEXT,
             artifacts_json TEXT,
             payload_json TEXT,
+            summary TEXT,
+            details_json TEXT,
             FOREIGN KEY(run_id) REFERENCES runs(run_id)
         );
         """
     )
+    try:
+        conn.execute("ALTER TABLE events ADD COLUMN summary TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE events ADD COLUMN details_json TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -136,14 +146,16 @@ def insert_event(
     resource: Optional[str],
     artifacts_json: Optional[str],
     payload: Dict[str, Any],
+    summary: Optional[str] = None,
+    details_json: Optional[str] = None,
 ) -> None:
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO events(
-                run_id, ts, technique_id, phase, status, severity, resource, artifacts_json, payload_json
+                run_id, ts, technique_id, phase, status, severity, resource, artifacts_json, payload_json, summary, details_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 run_id,
@@ -155,6 +167,8 @@ def insert_event(
                 resource,
                 artifacts_json,
                 json.dumps(payload) if payload else None,
+                summary,
+                details_json,
             ),
         )
         conn.commit()
@@ -173,7 +187,9 @@ def list_events(run_id: str) -> List[Dict[str, Any]]:
                 severity,
                 resource,
                 artifacts_json,
-                payload_json
+                payload_json,
+                summary,
+                details_json
             FROM events
             WHERE run_id = ?
             ORDER BY id ASC;
@@ -197,5 +213,13 @@ def list_events(run_id: str) -> List[Dict[str, Any]]:
                     item["payload"] = {}
             else:
                 item["payload"] = {}
+            if item.get("details_json"):
+                try:
+                    item["details"] = json.loads(item.pop("details_json"))
+                except json.JSONDecodeError:
+                    item["details"] = {}
+            else:
+                item["details"] = {}
+            item["summary"] = item.pop("summary", None)
             items.append(item)
         return items

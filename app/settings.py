@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     auth0_audience: Optional[str] = None
     auth0_issuer: Optional[str] = None
     auth0_jwks_uri: Optional[str] = None
+    auth0_client_id: Optional[str] = None
+    auth0_client_secret: Optional[str] = None
+    auth0_callback_url: Optional[str] = Field(default=None, env="AUTH0_CALLBACK_URL")
     gemini_api_key: Optional[str] = None
     aws_profile: str = "arena"
     use_gradient: bool = False
@@ -27,6 +30,9 @@ class Settings(BaseSettings):
     auth0_m2m_client_id: Optional[str] = None
     auth0_m2m_client_secret: Optional[str] = None
     auth0_m2m_audience: Optional[str] = None
+    session_secret: str = Field(default="change-me-session-secret", env="SESSION_SECRET")
+    session_cookie_max_age: int = Field(default=60 * 60 * 8, env="SESSION_COOKIE_MAX_AGE")
+    session_cookie_secure: bool = Field(default=False, env="SESSION_COOKIE_SECURE")
 
     model_config = SettingsConfigDict(
         env_file=".env",

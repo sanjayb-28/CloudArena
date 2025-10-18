@@ -1,14 +1,15 @@
 import logging
 import signal
 import time
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from app.adapters.sdk import run_sdk
-from app.adapters.stratus import run_stratus
+from app.adapters import sdk as sdk_adapter
+from app.adapters import stratus as stratus_adapter
 from app.planner.planner import _load_techniques
 from app.planner.schema import TechniqueSpec
 from app.settings import get_settings
@@ -38,16 +39,29 @@ class StepExecutionError(Exception):
 
 @contextmanager
 def _step_timeout(seconds: int) -> None:
+    if seconds <= 0:
+        yield
+        return
+
+    if threading.current_thread() is not threading.main_thread():
+        # SIGALRM cannot be used from worker threads; fall back to no-op timeout.
+        yield
+        return
+
     def _handle_timeout(signum, frame):  # noqa: ARG001
         raise StepTimeoutError(f"Step execution timed out after {seconds} seconds.")
 
-    previous = signal.signal(signal.SIGALRM, _handle_timeout)
-    signal.alarm(seconds)
     try:
+        previous = signal.signal(signal.SIGALRM, _handle_timeout)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+    except ValueError:
+        # signal.signal can raise ValueError if the platform/thread disallows SIGALRM.
         yield
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 def _post_event(
@@ -128,9 +142,9 @@ def _run_step(
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     if adapter_type == "stratus" and adapter_identifier:
-        return run_stratus(adapter_identifier, adapter_type, params, timeout=STEP_TIMEOUT_SECONDS)
+        return stratus_adapter.run_stratus(adapter_identifier, adapter_type, params, timeout=STEP_TIMEOUT_SECONDS)
     if adapter_type == "sdk" and adapter_identifier:
-        return run_sdk(adapter_identifier, adapter_type, params)
+        return sdk_adapter.run_sdk(adapter_identifier, adapter_type, params)
     raise ValueError(f"Unsupported adapter '{adapter_identifier}'")
 
 
@@ -319,7 +333,8 @@ def _normalize_result(
     result: Dict[str, Any],
     default_severity: Optional[str],
 ) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-    findings = result.get("findings") or []
+    raw_findings = result.get("findings") or []
+    findings = [_coerce_finding(item) for item in raw_findings]
     summary = result.get("summary")
     details = result.get("details") if isinstance(result.get("details"), dict) else None
     artifacts: List[Dict[str, Any]] = []
@@ -337,6 +352,12 @@ def _normalize_result(
         summary = summary or "No findings detected"
 
     return effective_severity, summary, details, artifacts
+
+
+def _coerce_finding(finding: Any) -> Dict[str, Any]:
+    if isinstance(finding, dict):
+        return finding
+    return {"summary": str(finding)}
 
 
 def _max_severity(findings: List[Dict[str, Any]], default: Optional[str]) -> Optional[str]:

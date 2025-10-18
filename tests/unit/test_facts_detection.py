@@ -4,6 +4,7 @@ import boto3
 import pytest
 
 from app.routes.facts import gather_facts
+import asyncio
 
 
 @pytest.fixture
@@ -31,12 +32,16 @@ def mock_boto3_client(monkeypatch):
         return original_client(service_name, *args, **kwargs)
 
     monkeypatch.setattr(boto3, "client", client)
-    monkeypatch.setattr(boto3.session, "Session", lambda: SimpleNamespace(region_name="us-east-1"))
+
+    class FakeSession:
+        def __init__(self):
+            self.region_name = "us-east-1"
+
+    monkeypatch.setattr(boto3.session, "Session", lambda: FakeSession())
 
 
-@pytest.mark.asyncio
-async def test_gather_facts_sets_service_flags(mock_boto3_client):
-    facts = await gather_facts()
+def test_gather_facts_sets_service_flags(mock_boto3_client):
+    facts = asyncio.run(gather_facts())
 
     services = facts["services"]
     assert services["iam"] is True
