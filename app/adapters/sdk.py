@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -38,7 +38,9 @@ def _audit_security_groups() -> List[Dict[str, Any]]:
     ec2 = boto3.client("ec2")
     findings: List[Dict[str, Any]] = []
     paginator = ec2.get_paginator("describe_security_groups")
-    common_ports = {22, 3389, 80, 443}
+    admin_ports = {22, 3389}
+    web_ports = {80, 443}
+
     for page in paginator.paginate():
         for sg in page.get("SecurityGroups", []):
             group_id = sg.get("GroupId")
@@ -46,28 +48,55 @@ def _audit_security_groups() -> List[Dict[str, Any]]:
             for permission in sg.get("IpPermissions", []):
                 from_port = permission.get("FromPort")
                 to_port = permission.get("ToPort")
-                ip_protocol = permission.get("IpProtocol")
-
-                # Determine whether the rule covers interesting ports
-                relevant = True
-                if from_port is not None and to_port is not None:
-                    relevant = any(from_port <= port <= to_port for port in common_ports)
-                if not relevant:
-                    continue
-
+                ports = (from_port, to_port)
                 for ip_range in permission.get("IpRanges", []):
                     if ip_range.get("CidrIp") == "0.0.0.0/0":
+                        severity = _sg_severity(ports, admin_ports, web_ports)
+                        issue = _describe_sg_issue(ports, permission.get("IpProtocol"))
                         findings.append(
                             {
-                                "security_group_id": group_id,
-                                "security_group_name": group_name,
-                                "protocol": ip_protocol,
-                                "from_port": from_port,
-                                "to_port": to_port,
-                                "description": ip_range.get("Description"),
+                                "resource": group_id or group_name or "unknown",
+                                "issue": issue,
+                                "severity": severity,
+                                "evidence": {
+                                    "group_id": group_id,
+                                    "group_name": group_name,
+                                    "protocol": permission.get("IpProtocol"),
+                                    "from_port": from_port,
+                                    "to_port": to_port,
+                                    "description": ip_range.get("Description"),
+                                },
                             }
                         )
     return findings
+
+
+def _sg_severity(
+    ports: tuple[Optional[int], Optional[int]],
+    admin_ports: set[int],
+    web_ports: set[int],
+) -> str:
+    start, end = ports
+    if start is None or end is None:
+        return "medium"
+    port_range = set(range(start, end + 1))
+    if port_range & admin_ports:
+        return "high"
+    if port_range & web_ports:
+        return "medium"
+    return "medium"
+
+
+def _describe_sg_issue(ports: tuple[Optional[int], Optional[int]], protocol: Optional[str]) -> str:
+    start, end = ports
+    if start is None or end is None:
+        port_desc = "all ports"
+    elif start == end:
+        port_desc = f"port {start}"
+    else:
+        port_desc = f"ports {start}-{end}"
+    proto = protocol or "all protocols"
+    return f"Ingress from 0.0.0.0/0 on {proto} {port_desc}"
 
 
 def _audit_kms_rotation() -> List[Dict[str, Any]]:
@@ -84,14 +113,22 @@ def _audit_kms_rotation() -> List[Dict[str, Any]]:
             except ClientError as exc:
                 findings.append(
                     {
-                        "key_id": key_id,
-                        "issue": "rotation_status_check_failed",
-                        "error": exc.response["Error"].get("Message", str(exc)),
+                        "resource": key_id,
+                        "issue": "Rotation status check failed",
+                        "severity": "medium",
+                        "evidence": {"error": exc.response["Error"].get("Message", str(exc))},
                     }
                 )
                 continue
             if not rotation.get("KeyRotationEnabled"):
-                findings.append({"key_id": key_id, "issue": "rotation_disabled"})
+                findings.append(
+                    {
+                        "resource": key_id,
+                        "issue": "KMS key rotation disabled",
+                        "severity": "medium",
+                        "evidence": {"rotation_enabled": False},
+                    }
+                )
     return findings
 
 
@@ -114,7 +151,19 @@ def _audit_iam_key_age() -> List[Dict[str, Any]]:
                     continue
                 age_days = (now - create_date).days
                 if age_days > 90:
-                    findings.append({"user": user_name, "access_key_id": key_id, "age_days": age_days})
+                    severity = "high" if age_days > 180 else "medium"
+                    findings.append(
+                        {
+                            "resource": f"{user_name}:{key_id}",
+                            "issue": f"IAM access key age {age_days} days",
+                            "severity": severity,
+                            "evidence": {
+                                "user": user_name,
+                                "access_key_id": key_id,
+                                "age_days": age_days,
+                            },
+                        }
+                    )
     return findings
 
 
@@ -138,7 +187,14 @@ def _audit_s3_public_policies() -> List[Dict[str, Any]]:
         try:
             policy_doc = json.loads(policy_str)
         except json.JSONDecodeError:
-            findings.append({"bucket": name, "issue": "policy_parse_error"})
+            findings.append(
+                {
+                    "resource": name,
+                    "issue": "Bucket policy parse error",
+                    "severity": "medium",
+                    "evidence": {"policy": policy_str[:200]},
+                }
+            )
             continue
         statements = policy_doc.get("Statement", [])
         if isinstance(statements, dict):
@@ -162,7 +218,14 @@ def _audit_s3_public_policies() -> List[Dict[str, Any]]:
             allows_get = any(action in {"s3:GetObject", "s3:*"} for action in actions)
 
             if principal_public and allows_get:
-                findings.append({"bucket": name, "public": True, "statement": statement})
+                findings.append(
+                    {
+                        "resource": name,
+                        "issue": "Bucket policy allows public s3:GetObject",
+                        "severity": "medium",
+                        "evidence": {"statement": statement},
+                    }
+                )
                 break
     return findings
 

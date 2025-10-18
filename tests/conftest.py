@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -19,3 +18,18 @@ def configure_test_env(monkeypatch, tmp_path):
     yield
     if db_path.exists():
         db_path.unlink()
+
+
+@pytest.fixture
+def facts_builder():
+    def _builder(public_buckets=None, services=None):
+        public_buckets = public_buckets or []
+        services = services or {}
+        s3_entries = [{"name": name, "public": public} for name, public in public_buckets]
+        return {
+            "account": "123456789012",
+            "region": "us-east-1",
+            "services": {"s3": s3_entries, **services},
+        }
+
+    return _builder

@@ -100,10 +100,11 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
         params = _merge_params(spec)
         runbook.add_step(RunbookStep(technique_id=technique_id, params=params))
 
-    if services.get("iam") is not None:
-        _enqueue_if_applicable("T-IAM-ENUM")
-
-    if services.get("ecr") is not None:
-        _enqueue_if_applicable("T-ECR-ENUM")
+    _enqueue_if_applicable("T-S3-PUBLIC-POLICY")
+    _enqueue_if_applicable("T-EC2-SG-OPEN")
+    _enqueue_if_applicable("T-IAM-KEY-AGE")
+    _enqueue_if_applicable("T-KMS-ROTATION")
+    _enqueue_if_applicable("T-IAM-ENUM")
+    _enqueue_if_applicable("T-ECR-ENUM")
 
     return runbook

@@ -17,6 +17,7 @@ from .celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_SECONDS = 120
+SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
 
 
 _token_cache: Dict[str, Any] = {"token": None, "expires": 0.0}
@@ -58,6 +59,8 @@ def _post_event(
     severity: Optional[str] = None,
     resource: Optional[str] = None,
     artifacts: Optional[List[Dict[str, Any]]] = None,
+    summary: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
 ) -> None:
     settings = get_settings()
     url = settings.api_base_url.rstrip("/") + "/events"
@@ -82,6 +85,10 @@ def _post_event(
         event_body["resource"] = resource
     if artifacts:
         event_body["artifacts"] = artifacts
+    if summary is not None:
+        event_body["summary"] = summary
+    if details is not None:
+        event_body["details"] = details
 
     with httpx.Client(timeout=10.0) as client:
         response = client.post(url, json=event_body, headers=headers)
@@ -161,6 +168,8 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 phase="queued",
                 severity=severity,
                 resource=resource,
+                summary="Step queued",
+                details=None,
             )
 
             _post_event(
@@ -170,6 +179,8 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 phase="running",
                 severity=severity,
                 resource=resource,
+                summary="Step running",
+                details=None,
             )
 
             with _step_timeout(STEP_TIMEOUT_SECONDS):
@@ -185,14 +196,24 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 artifacts.append({"type": "cloudtrail", "uri": cloudtrail_uri})
 
             if result.get("ok", False):
+                effective_severity, summary, details, result_artifacts = _normalize_result(
+                    technique_id,
+                    result,
+                    severity,
+                )
+                if result_artifacts:
+                    artifacts.extend(result_artifacts)
+
                 _post_event(
                     run_id,
                     "run.step",
                     {**step_payload, "result": result},
                     phase="ok",
-                    severity=severity,
+                    severity=effective_severity,
                     resource=resource,
                     artifacts=artifacts or None,
+                    summary=summary,
+                    details=details,
                 )
             else:
                 raise StepExecutionError(technique_id, result)
@@ -207,6 +228,8 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 severity=severity,
                 resource=resource,
                 artifacts=artifacts or None,
+                summary=f"Step timed out: {exc}",
+                details=None,
             )
             raise
         except httpx.HTTPError as exc:
@@ -229,6 +252,8 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 severity=severity,
                 resource=resource,
                 artifacts=artifacts or None,
+                summary=f"Step error: {exc}",
+                details=None,
             )
             raise
 
@@ -237,6 +262,9 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
         "run.completed",
         {"status": "ok", "step_count": len(steps)},
         phase="ok",
+        severity="low",
+        summary="Run completed successfully",
+        details=None,
     )
 
     return "queued"
@@ -284,3 +312,56 @@ def get_bearer_token() -> Optional[str]:
         return access_token
 
     return settings.auth_token
+
+
+def _normalize_result(
+    technique_id: Optional[str],
+    result: Dict[str, Any],
+    default_severity: Optional[str],
+) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    findings = result.get("findings") or []
+    summary = result.get("summary")
+    details = result.get("details") if isinstance(result.get("details"), dict) else None
+    artifacts: List[Dict[str, Any]] = []
+
+    effective_severity = _max_severity(findings, default_severity)
+
+    if findings:
+        summary = summary or _summarize_findings(technique_id, findings)
+        if details is None:
+            details = {"findings": findings[:5]}
+        artifacts.append({"type": "finding_count", "uri": str(len(findings))})
+    elif result.get("stdout"):
+        summary = summary or str(result["stdout"])[:200]
+    else:
+        summary = summary or "No findings detected"
+
+    return effective_severity, summary, details, artifacts
+
+
+def _max_severity(findings: List[Dict[str, Any]], default: Optional[str]) -> Optional[str]:
+    highest = (default or "low").lower()
+    for finding in findings:
+        sev = (finding.get("severity") or highest).lower()
+        if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(highest, 0):
+            highest = sev
+    return highest
+
+
+def _summarize_findings(technique_id: Optional[str], findings: List[Dict[str, Any]]) -> str:
+    count = len(findings)
+    if technique_id == "T-EC2-SG-OPEN":
+        ports = sorted({finding.get("evidence", {}).get("from_port") for finding in findings if finding.get("evidence")})
+        port_list = ", ".join(str(port) for port in ports if port) or "various ports"
+        return f"{count} security groups allow 0.0.0.0/0 (ports: {port_list})"
+    if technique_id == "T-S3-PUBLIC-POLICY":
+        buckets = [finding.get("resource") for finding in findings if finding.get("resource")]
+        bucket_list = ", ".join(buckets[:3])
+        more = "" if len(buckets) <= 3 else f" (+{len(buckets) - 3} more)"
+        return f"{count} buckets with public access: {bucket_list}{more}"
+    if technique_id == "T-IAM-KEY-AGE":
+        max_age = max((finding.get("evidence", {}).get("age_days", 0) for finding in findings), default=0)
+        return f"{count} IAM access keys older than 90 days (oldest {max_age} days)"
+    if technique_id == "T-KMS-ROTATION":
+        return f"{count} KMS keys with rotation disabled"
+    return f"{count} findings detected" if count else "No findings detected"

@@ -16,6 +16,9 @@ from .store import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    data_dir = settings.data_dir
+    if data_dir is not None:
+        data_dir.mkdir(parents=True, exist_ok=True)
     init_db(settings.database_url)
     app.state.settings = settings
     yield

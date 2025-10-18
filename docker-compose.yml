@@ -8,11 +8,13 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    working_dir: /usr/src/app
     volumes:
-      - ./app:/usr/src/app
-      - ./tests:/usr/src/tests:ro
+      - ./app:/usr/src/app:ro
       - ./catalog:/usr/src/catalog:ro
       - ~/.aws:/root/.aws:ro
+      - ./.data:/data
+      - ./tests:/usr/src/tests:ro
     env_file:
       - .env
     environment:
@@ -28,10 +30,12 @@ services:
       context: .
       dockerfile: docker/Dockerfile.worker
     command: celery -A app.workers.celery_app:celery_app worker -l INFO
+    working_dir: /usr/src/app
     volumes:
-      - ./app:/usr/src/app
+      - ./app:/usr/src/app:ro
       - ./catalog:/usr/src/catalog:ro
       - ~/.aws:/root/.aws:ro
+      - ./.data:/data
     env_file:
       - .env
     environment:

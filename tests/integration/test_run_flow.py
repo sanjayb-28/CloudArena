@@ -65,6 +65,7 @@ def test_run_flow_creates_events_and_report(client):
     assert events_response.status_code == 200
     events = events_response.json()["events"]
     assert len(events) >= 2
+    assert any(event.get("summary") for event in events)
 
     report_response = client.post(
         f"/reports/{run_id}",

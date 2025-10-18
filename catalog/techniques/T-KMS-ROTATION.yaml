@@ -1,0 +1,17 @@
+id: T-KMS-ROTATION
+name: Audit KMS Key Rotation
+provider: aws
+requires:
+  services:
+    - kms
+safety: read_only
+severity: medium
+impl:
+  adapter: sdk.kms.rotation_audit
+mitre:
+  - TA0003
+params: {}
+evidence:
+  expects:
+    - kms:ListKeys
+    - kms:GetKeyRotationStatus

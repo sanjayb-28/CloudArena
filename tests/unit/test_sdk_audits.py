@@ -23,6 +23,7 @@ def monkeypatched_boto3_client(monkeypatch):
     yield stubs
     for stub in stubs.values():
         stub.assert_no_pending_responses()
+        stub.deactivate()
 
 
 def _s3_policy(policy):

@@ -1,0 +1,16 @@
+id: T-EC2-SG-OPEN
+name: Audit Security Groups with Open Ingress
+provider: aws
+requires:
+  services:
+    - ec2
+safety: read_only
+severity: medium
+impl:
+  adapter: sdk.ec2.sg_audit
+mitre:
+  - TA0003
+params: {}
+evidence:
+  expects:
+    - ec2:DescribeSecurityGroups

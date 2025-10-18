@@ -1,0 +1,17 @@
+id: T-IAM-KEY-AGE
+name: Audit IAM Access Key Age
+provider: aws
+requires:
+  services:
+    - iam
+safety: read_only
+severity: medium
+impl:
+  adapter: sdk.iam.key_age
+mitre:
+  - TA0003
+params: {}
+evidence:
+  expects:
+    - iam:ListUsers
+    - iam:ListAccessKeys
