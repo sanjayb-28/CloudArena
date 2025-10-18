@@ -1,7 +1,6 @@
 """Adapter for invoking Stratus Red Team simulations."""
 
 import subprocess
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -23,7 +22,13 @@ def _build_command(technique_id: str, bucket: Optional[str]) -> list[str]:
     return command
 
 
-def run_stratus(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def run_stratus(
+    technique_id: str,
+    adapter: str,
+    params: Dict[str, Any],
+    *,
+    timeout: Optional[int] = None,
+) -> Dict[str, Any]:
     """Execute a Stratus technique via the CLI."""
 
     if adapter != "stratus":
@@ -38,9 +43,12 @@ def run_stratus(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict
             check=False,
             capture_output=True,
             text=True,
+            timeout=timeout,
         )
     except FileNotFoundError as exc:
         return {"ok": False, "error": f"Stratus CLI not found: {exc}"}
+    except subprocess.TimeoutExpired as exc:
+        return {"ok": False, "error": f"Stratus execution timed out: {exc}"}
 
     result = {"ok": completed.returncode == 0}
     if completed.stdout:
