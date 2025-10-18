@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 from app.auth import require_auth
 from app.reporter.reporter import render_report
-from app.routes.events import get_events_for_run
 from app.routes.facts import gather_facts
+from app.store import get_run, list_events
 
 router = APIRouter()
 
@@ -21,8 +21,8 @@ async def create_report(
     payload: ReportRequest,
     _: Dict[str, Any] = Depends(require_auth),
 ) -> Dict[str, str]:
-    events = get_events_for_run(run_id)
-    if not events:
+    events = list_events(run_id)
+    if not events and not get_run(run_id):
         raise HTTPException(status_code=404, detail="Run not found.")
 
     if payload.facts is not None:

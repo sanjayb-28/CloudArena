@@ -7,6 +7,7 @@ from .routes.health import router as health_router
 from .routes.reports import router as reports_router
 from .routes.runs import router as runs_router
 from .settings import get_settings
+from .store import init_db
 
 settings = get_settings()
 
@@ -17,6 +18,11 @@ app.include_router(facts_router)
 app.include_router(events_router)
 app.include_router(runs_router)
 app.include_router(reports_router)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    init_db(settings.database_url)
 
 
 @app.get("/")

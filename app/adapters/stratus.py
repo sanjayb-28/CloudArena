@@ -1,25 +1,31 @@
 """Adapter for invoking Stratus Red Team simulations."""
 
 import subprocess
+from pathlib import Path
 from typing import Any, Dict, Optional
 
+import yaml
 
-STRATUS_COMMAND = "stratus"
-TECHNIQUE_MAP = {
-    "stratus.aws.s3.public_read_sim": "aws/exfiltration/s3/public-read-acl",
-}
+COMMAND = "stratus"
+MAP_PATH = Path(__file__).resolve().parents[2] / "catalog" / "techniques_map.yaml"
+
+try:
+    if MAP_PATH.exists():
+        with MAP_PATH.open("r", encoding="utf-8") as handle:
+            _MAP_DATA = yaml.safe_load(handle) or {}
+            if not isinstance(_MAP_DATA, dict):
+                raise ValueError("techniques_map.yaml must define a mapping")
+    else:
+        _MAP_DATA = {}
+except (OSError, yaml.YAMLError, ValueError) as exc:
+    raise RuntimeError(f"Unable to load Stratus technique map: {exc}") from exc
 
 
-def _build_command(technique_id: str, bucket: Optional[str]) -> list[str]:
-    mapped = TECHNIQUE_MAP.get(technique_id)
+def _resolve_technique(identifier: str) -> str:
+    mapped = _MAP_DATA.get(identifier)
     if not mapped:
-        raise ValueError(f"Unsupported Stratus technique '{technique_id}'")
-
-    command = [STRATUS_COMMAND, "detonate", mapped, "--cleanup"]
-    if bucket:
-        command.extend(["--bucket", bucket])
-
-    return command
+        raise ValueError(f"Unsupported Stratus technique '{identifier}'")
+    return mapped
 
 
 def run_stratus(
@@ -34,8 +40,12 @@ def run_stratus(
     if adapter != "stratus":
         raise ValueError(f"Unsupported adapter '{adapter}' for Stratus runner")
 
+    resolved = _resolve_technique(technique_id)
+
     bucket = params.get("bucket")
-    command = _build_command(technique_id, bucket)
+    command = [COMMAND, "detonate", resolved, "--cleanup"]
+    if bucket:
+        command.extend(["--bucket", bucket])
 
     try:
         completed = subprocess.run(
@@ -45,15 +55,18 @@ def run_stratus(
             text=True,
             timeout=timeout,
         )
-    except FileNotFoundError as exc:
-        return {"ok": False, "error": f"Stratus CLI not found: {exc}"}
+    except FileNotFoundError:
+        return {"ok": False, "error": "stratus not installed"}
     except subprocess.TimeoutExpired as exc:
-        return {"ok": False, "error": f"Stratus execution timed out: {exc}"}
+        return {"ok": False, "error": f"Stratus execution timed out: {exc}"} 
 
     result = {"ok": completed.returncode == 0}
     if completed.stdout:
         result["stdout"] = completed.stdout
     if completed.stderr:
         result["stderr"] = completed.stderr
+
+    if not result["ok"]:
+        result.setdefault("error", "Stratus command failed")
 
     return result

@@ -8,6 +8,7 @@ env/
 venv/
 .venv/
 .env
+*.db
 
 # Tooling
 .mypy_cache/

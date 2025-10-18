@@ -1,0 +1,1 @@
+stratus.aws.s3.public_read_sim: "aws/exfiltration/s3/public-read-acl"
