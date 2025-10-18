@@ -13,5 +13,6 @@ python-jose[cryptography]==3.3.0
 PyJWT==2.9.0
 loguru==0.7.2
 markdown2==2.5.0
+PyYAML==6.0.2
 pytest==8.3.2
 black==24.8.0
