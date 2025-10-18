@@ -4,6 +4,7 @@ from .routes.auth_test import router as auth_test_router
 from .routes.events import router as events_router
 from .routes.facts import router as facts_router
 from .routes.health import router as health_router
+from .routes.reports import router as reports_router
 from .routes.runs import router as runs_router
 from .settings import get_settings
 
@@ -15,6 +16,7 @@ app.include_router(auth_test_router)
 app.include_router(facts_router)
 app.include_router(events_router)
 app.include_router(runs_router)
+app.include_router(reports_router)
 
 
 @app.get("/")

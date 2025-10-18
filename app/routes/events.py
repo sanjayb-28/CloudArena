@@ -15,6 +15,10 @@ def record_event(event: Event) -> None:
     _EVENTS[event.run_id].append(event)
 
 
+def get_events_for_run(run_id: str) -> List[Event]:
+    return _EVENTS.get(run_id, [])
+
+
 @router.post("/events")
 async def create_event(event: Event, _: Dict[str, Any] = Depends(require_auth)) -> Dict[str, str]:
     record_event(event)
