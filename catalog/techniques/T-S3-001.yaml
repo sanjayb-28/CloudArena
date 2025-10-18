@@ -1,0 +1,21 @@
+id: T-S3-001
+name: Simulate Public S3 Object Read
+provider: aws
+requires:
+  services:
+    - s3
+  predicates:
+    - bucket.public == true
+params:
+  bucket:
+    type: string
+safety: simulation
+severity: medium
+impl:
+  adapter: stratus.aws.s3.public_read_sim
+mitre:
+  - TA0010:T1530
+evidence:
+  expects:
+    - cloudtrail:GetObject
+    - s3_access_result

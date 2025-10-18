@@ -1,0 +1,12 @@
+id: T-IAM-ENUM
+name: Enumerate IAM Roles
+provider: aws
+requires:
+  services:
+    - iam
+safety: read_only
+severity: low
+impl:
+  adapter: sdk.iam.enum
+mitre:
+  - TA0003

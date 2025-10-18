@@ -1,0 +1,12 @@
+id: T-ECR-ENUM
+name: Enumerate ECR Repositories
+provider: aws
+requires:
+  services:
+    - ecr
+safety: read_only
+severity: low
+impl:
+  adapter: sdk.ecr.enum
+mitre:
+  - TA0007

@@ -39,25 +39,67 @@ def _load_techniques() -> Dict[str, TechniqueSpec]:
     return techniques
 
 
+def _services_present(facts: Dict[str, Any]) -> Dict[str, Any]:
+    return facts.get("services", {}) or {}
+
+
+def _requirements_met(spec: TechniqueSpec, facts: Dict[str, Any]) -> bool:
+    requires = spec.requires or {}
+    services_required = requires.get("services") or []
+    if services_required:
+        services = _services_present(facts)
+        for service in services_required:
+            if service not in services or services.get(service) in (None, []):
+                return False
+
+    # TODO: Evaluate predicate expressions when planner DSL is finalized.
+    return True
+
+
+def _merge_params(spec: TechniqueSpec, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    if spec.params:
+        for key, value in spec.params.items():
+            if isinstance(value, dict) and "default" in value:
+                merged[key] = value["default"]
+    if overrides:
+        merged.update({k: v for k, v in overrides.items() if v is not None})
+    return merged
+
+
 def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
     """Construct a runbook of techniques based on observed facts."""
 
     runbook = Runbook(goals=goals)
     techniques = _load_techniques()
+    services = _services_present(facts)
 
-    services = facts.get("services", {})
-    s3_facts = services.get("s3", []) or []
-    for bucket in s3_facts:
-        if bucket.get("public"):
-            bucket_name = bucket.get("name")
-            params: Dict[str, Any] = {}
-            spec = techniques.get("T-S3-001")
-            if spec:
-                params.update(spec.params)
-            if bucket_name:
-                params["bucket"] = bucket_name
+    # Prioritize public S3 access simulations.
+    s3_spec = techniques.get("T-S3-001")
+    if s3_spec and _requirements_met(s3_spec, facts):
+        for bucket in services.get("s3", []) or []:
+            if bucket.get("public"):
+                params = _merge_params(
+                    s3_spec,
+                    {"bucket": bucket.get("name")},
+                )
+                runbook.add_step(RunbookStep(technique_id=s3_spec.id, params=params))
 
-            step = RunbookStep(technique_id="T-S3-001", params=params)
-            runbook.add_step(step)
+    def _enqueue_if_applicable(technique_id: str) -> None:
+        spec = techniques.get(technique_id)
+        if not spec:
+            logger.debug("Technique %s not found in catalog.", technique_id)
+            return
+        if not _requirements_met(spec, facts):
+            logger.debug("Technique %s requirements not met.", technique_id)
+            return
+        params = _merge_params(spec)
+        runbook.add_step(RunbookStep(technique_id=technique_id, params=params))
+
+    if services.get("iam") is not None:
+        _enqueue_if_applicable("T-IAM-ENUM")
+
+    if services.get("ecr") is not None:
+        _enqueue_if_applicable("T-ECR-ENUM")
 
     return runbook

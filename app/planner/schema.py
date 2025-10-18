@@ -7,11 +7,12 @@ class TechniqueSpec(BaseModel):
     """Metadata describing an executable technique pulled from the catalog."""
 
     id: str
-    requires: List[str] = Field(default_factory=list)
+    requires: Dict[str, Any] = Field(default_factory=dict)
     params: Dict[str, Any] = Field(default_factory=dict)
-    safety: Dict[str, Any] = Field(default_factory=dict)
+    safety: Any | None = None
+    severity: Optional[str] = None
     impl: Dict[str, Any] = Field(default_factory=dict)
-    mitre: Dict[str, Any] = Field(default_factory=dict)
+    mitre: List[str] = Field(default_factory=list)
 
 
 class RunbookStep(BaseModel):
