@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from app.settings import get_settings
+
 
 def _list_iam_roles() -> List[str]:
     iam = boto3.client("iam")
@@ -236,6 +238,10 @@ def run_sdk(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict[str
     if adapter != "sdk":
         raise ValueError(f"Unsupported adapter '{adapter}' for SDK runner")
 
+    settings = get_settings()
+    if settings.simulation_mode:
+        return _simulate_sdk(technique_id)
+
     try:
         if technique_id == "sdk.iam.enum":
             roles = _list_iam_roles()
@@ -260,3 +266,54 @@ def run_sdk(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict[str
         return {"ok": False, "error": str(exc)}
 
     raise ValueError(f"Unsupported SDK technique '{technique_id}'")
+
+
+def _simulate_sdk(technique_id: str) -> Dict[str, Any]:
+    if technique_id == "sdk.iam.enum":
+        return {"ok": True, "roles": ["AppServerRole", "DbAdminRole"]}
+    if technique_id == "sdk.ecr.enum":
+        return {"ok": True, "repositories": ["web-api", "internal-tools"]}
+    if technique_id == "sdk.ec2.sg_audit":
+        return {
+            "ok": True,
+            "findings": [
+                {
+                    "resource": "sg-123456",
+                    "issue": "Ingress from 0.0.0.0/0 on tcp port 22",
+                    "severity": "high",
+                    "evidence": {"from_port": 22, "to_port": 22},
+                }
+            ],
+        }
+    if technique_id == "sdk.kms.rotation_audit":
+        return {
+            "ok": True,
+            "findings": [
+                {"resource": "key-sandbox", "issue": "KMS key rotation disabled", "severity": "medium", "evidence": {}}
+            ],
+        }
+    if technique_id == "sdk.iam.key_age":
+        return {
+            "ok": True,
+            "findings": [
+                {
+                    "resource": "analyst:AKIA-OLDKEY",
+                    "issue": "IAM access key age 148 days",
+                    "severity": "medium",
+                    "evidence": {"age_days": 148},
+                }
+            ],
+        }
+    if technique_id == "sdk.s3.public_policy_audit":
+        return {
+            "ok": True,
+            "findings": [
+                {
+                    "resource": "public-audit-logs",
+                    "issue": "Bucket policy allows public s3:GetObject",
+                    "severity": "medium",
+                    "evidence": {},
+                }
+            ],
+        }
+    return {"ok": False, "error": f"Unsupported SDK technique '{technique_id}' in simulation"}

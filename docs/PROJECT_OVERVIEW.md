@@ -35,6 +35,17 @@ Key objectives:
 Supporting assets: Stratus CLI, AWS credentials, Auth0 tenant, catalog definitions, SQLite database.
 ```
 
+### Dev Simulation Mode
+
+To support turnkey demos without external dependencies, enable `SIMULATION_MODE=1`. In this mode:
+
+- `gather_facts` returns deterministic facts (public/private S3 buckets, service flags).
+- The `/runs` endpoint skips real AWS identity validation.
+- SDK and Stratus adapters emit canned findings and stdout, simulating successful detonations.
+- Reports still render from stored events, letting the full UI flow run entirely inside Docker Compose.
+
+Disable simulation mode in staging/production to restore live AWS and Stratus execution.
+
 ## 3. Configuration Surface
 
 Configuration is managed with `pydantic-settings` in `app/settings.py`. Important fields (all sourced from `.env` or environment variables):
@@ -50,8 +61,17 @@ Configuration is managed with `pydantic-settings` in `app/settings.py`. Importan
 | `API_BASE_URL` | Where workers post run events (defaults to `http://api:8000`). |
 | `CELERY_RESULT_BACKEND`, `REDIS_URL` | Celery connectivity. |
 | `GEMINI_API_KEY` | Optional LLM summarizer for reports. |
+| `SIMULATION_MODE` | Toggles deterministic local run behaviour. |
 
 The `.env` file currently contains real-looking Auth0 secrets; rotate or replace before sharing.
+
+### Local Quickstart
+
+1. Set `SIMULATION_MODE=1` (present in `.env`) so the stack runs without external AWS/Stratus dependencies.
+2. Provision Auth0 credentials for the UI client and configure `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and `AUTH0_CALLBACK_URL` (`http://localhost:8000/auth/callback` for local runs).
+3. Launch the stack with `docker compose up --build`.
+4. Browse to `http://localhost:8000/ui`, authenticate via Auth0, click **Create Run**, observe the event stream, and generate the Markdown report.
+5. Disable simulation mode in environments where real AWS access and the Stratus CLI are available.
 
 ## 4. Core Modules and Responsibilities
 
@@ -72,7 +92,7 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 - Currently prioritizes Stratus S3 simulations followed by SDK audits for S3 policies, EC2 security groups, IAM key age, KMS rotation, IAM enum, and ECR enum.
 
 ### 4.4 Fact Gathering (`app/routes/facts.py`)
-- Uses boto3 to fetch AWS account ID, active region, S3 bucket access posture, and service capability flags (IAM, EC2, KMS, ECR).
+- Uses boto3 to fetch AWS account ID, active region, S3 bucket access posture, and service capability flags (IAM, EC2, KMS, ECR). In simulation mode, returns canned facts mirroring a sandbox account.
 - Called during run creation when the client does not supply facts explicitly.
 - Returns JSON consumed both by planner and reporting.
 
@@ -90,7 +110,7 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 - `get_bearer_token` fetches Auth0 client-credential tokens for worker-to-API communication or falls back to `AUTH_TOKEN`.
 
 ### 4.7 Routes & UI
-- `app/routes/runs.py` – validates AWS identity/region, triggers planner, persists run, schedules `execute_runbook`, and seeds an initial `run.created` event.
+- `app/routes/runs.py` – validates AWS identity/region (skipped when simulation mode is enabled), triggers planner, persists run, schedules `execute_runbook`, and seeds an initial `run.created` event.
 - `app/routes/events.py` – accepts event ingestion (`POST /events`) and exposes list view (`GET /events/{run_id}`) used by API clients and HTMX.
 - `app/routes/reports.py` – builds markdown reports by combining event stream and facts via `app/reporter/reporter.py`.
 - `app/routes/ui.py` – HTMX-driven operator interface (dashboard, run detail, report generation) requiring authentication.
@@ -109,14 +129,14 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 
 1. **User login**: Visiting `/ui` redirects to `/login`. Auth0 authenticates the user and redirects back to `/auth/callback`, which exchanges the code for tokens, retrieves profile data, and drops a signed session cookie.
 2. **Run creation**: From the UI (or via API `POST /runs`), the server:
-   - Ensures the caller’s AWS account and region match configured expectations using `sts.get_caller_identity`.
-   - Gathers facts (unless supplied).
+   - Ensures the caller’s AWS account and region match configured expectations using `sts.get_caller_identity` (skipped in simulation mode).
+   - Gathers facts (unless supplied) either from AWS or simulated data.
    - Builds a runbook using planner logic and catalog requirements.
    - Stores the run and enqueues `execute_runbook` in Celery.
    - Emits a `run.created` event for UI consistency.
 3. **Task execution**: Celery worker processes the runbook:
    - Posts `queued` and `running` events for each step.
-   - Executes Stratus or SDK techniques with timeout guardrails.
+   - Executes Stratus or SDK techniques with timeout guardrails (either simulated results or live calls).
    - Captures stdout and derived artifacts (finding counts, CloudTrail URIs).
    - Posts `ok` or `error` events containing summaries, severities, findings, and details.
 4. **Event streaming**: UI polls `/events/{run_id}` via HTMX every two seconds, rendering the new events table.
@@ -170,9 +190,8 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 ## 8. Roadmap Suggestions for Full E2E Flow
 
 1. **Self-contained AWS simulation**
-   - Introduce LocalStack to docker-compose for IAM, S3, EC2, KMS, ECR endpoints.
-   - Seed data representing public buckets, stale IAM keys, etc., so techniques produce realistic findings.
-   - Update `gather_facts` and SDK adapter to point at LocalStack endpoints when running locally.
+   - Current simulation mode returns canned responses. Consider integrating LocalStack for higher fidelity, aligning SDK responders with real AWS API semantics.
+   - Provide seeding scripts to keep simulated assets up to date.
 2. **Stratus integration**
    - Extend worker Dockerfile to install the Stratus CLI and its dependencies.
    - Expand `catalog/techniques_map.yaml` to cover more Stratus simulations.
@@ -199,7 +218,8 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 
 - [ ] Update `.env.example` and document required secrets.
 - [ ] Ensure worker images bundle Stratus CLI and handle failure modes gracefully.
-- [ ] Integrate LocalStack or other simulation to run “attacks” entirely inside Docker.
+- [x] Integrate simulation mode so the full flow runs entirely inside Docker.
+- [ ] Replace canned simulation with LocalStack-backed resources for richer behaviour.
 - [ ] Add Auth0 logout redirect and optionally refresh token rotation.
 - [ ] Improve reporting presentation and consider PDF/HTML export.
 - [ ] Enrich planner logic with goals weighting and dependency ordering.
@@ -207,4 +227,3 @@ The `.env` file currently contains real-looking Auth0 secrets; rotate or replace
 - [ ] Design structured telemetry (logs, metrics) and configure for both local and production deployment.
 
 Keep this document updated as modules evolve so automated assistants and new contributors can quickly understand the system’s state and priorities.
-

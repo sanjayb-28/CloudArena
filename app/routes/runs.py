@@ -31,30 +31,34 @@ async def create_run(
     payload: RunRequest,
     _: Dict[str, Any] = Depends(require_auth),
 ) -> Dict[str, Any]:
-    try:
-        sts_client = boto3.client("sts", region_name=settings.region)
-    except NoCredentialsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AWS credentials are not available.",
-        ) from exc
+    if settings.simulation_mode:
+        account_id = settings.arena_account_id or "999999999999"
+        allowed_region = settings.region
+    else:
+        try:
+            sts_client = boto3.client("sts", region_name=settings.region)
+        except NoCredentialsError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AWS credentials are not available.",
+            ) from exc
 
-    try:
-        identity = sts_client.get_caller_identity()
-    except ClientError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to validate AWS caller identity.",
-        ) from exc
+        try:
+            identity = sts_client.get_caller_identity()
+        except ClientError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to validate AWS caller identity.",
+            ) from exc
 
-    account_id = identity.get("Account")
-    if settings.arena_account_id and account_id != settings.arena_account_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lab-only account mismatch.")
+        account_id = identity.get("Account")
+        if settings.arena_account_id and account_id != settings.arena_account_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lab-only account mismatch.")
 
-    session_region = boto3.session.Session().region_name
-    allowed_region = settings.region
-    if allowed_region and session_region and session_region != allowed_region:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Region not allowed for CloudArena runs.")
+        session_region = boto3.session.Session().region_name
+        allowed_region = settings.region
+        if allowed_region and session_region and session_region != allowed_region:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Region not allowed for CloudArena runs.")
 
     goals = payload.goals
     if payload.facts is not None:
@@ -69,6 +73,8 @@ async def create_run(
     if allowed_region and facts_region and facts_region != allowed_region:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Region not allowed for CloudArena runs.")
 
+    if settings.simulation_mode:
+        facts.setdefault("account", account_id)
     if facts.get("account") and facts.get("account") != account_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Facts account does not match caller.")
 

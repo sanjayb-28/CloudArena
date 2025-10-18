@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     session_secret: str = Field(default="change-me-session-secret", env="SESSION_SECRET")
     session_cookie_max_age: int = Field(default=60 * 60 * 8, env="SESSION_COOKIE_MAX_AGE")
     session_cookie_secure: bool = Field(default=False, env="SESSION_COOKIE_SECURE")
+    simulation_mode: bool = Field(default=False, env="SIMULATION_MODE")
 
     model_config = SettingsConfigDict(
         env_file=".env",

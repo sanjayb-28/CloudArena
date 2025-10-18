@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 import yaml
 
+from app.settings import get_settings
+
 COMMAND = "stratus"
 MAP_PATH = Path(__file__).resolve().parents[2] / "catalog" / "techniques_map.yaml"
 
@@ -39,6 +41,26 @@ def run_stratus(
 
     if adapter != "stratus":
         raise ValueError(f"Unsupported adapter '{adapter}' for Stratus runner")
+
+    settings = get_settings()
+    if settings.simulation_mode:
+        bucket = params.get("bucket")
+        stdout = [
+            f"Simulated Stratus detonation for {technique_id}",
+            f"Target bucket: {bucket or 'n/a'}",
+            "Public objects discovered: manifest.json, screenshots/landing.png",
+        ]
+        return {
+            "ok": True,
+            "stdout": "\n".join(stdout),
+            "findings": [
+                {
+                    "resource": bucket or "public-audit-logs",
+                    "issue": "Simulated public object exposure validated",
+                    "severity": "medium",
+                }
+            ],
+        }
 
     resolved = _resolve_technique(technique_id)
 

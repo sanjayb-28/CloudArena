@@ -97,6 +97,23 @@ def _list_bucket_summaries(s3_client) -> List[Dict[str, Any]]:
 
 
 async def gather_facts() -> Dict[str, Any]:
+    settings = get_settings()
+    if settings.simulation_mode:
+        return {
+            "account": settings.arena_account_id or "999999999999",
+            "region": settings.region,
+            "services": {
+                "iam": True,
+                "ec2": True,
+                "kms": True,
+                "ecr": True,
+                "s3": [
+                    {"name": "public-audit-logs", "public": True},
+                    {"name": "internal-datasets", "public": False},
+                ],
+            },
+        }
+
     try:
         sts_client = boto3.client("sts")
         s3_client = boto3.client("s3")
@@ -116,7 +133,7 @@ async def gather_facts() -> Dict[str, Any]:
         ) from exc
 
     session = boto3.session.Session()
-    region = session.region_name or get_settings().region
+    region = session.region_name or settings.region
 
     s3_summaries = _list_bucket_summaries(s3_client)
     service_flags = _detect_service_capabilities(region)
@@ -130,6 +147,10 @@ async def gather_facts() -> Dict[str, Any]:
 
 
 def _detect_service_capabilities(region: Optional[str]) -> Dict[str, Any]:
+    settings = get_settings()
+    if settings.simulation_mode:
+        return {"iam": True, "ec2": True, "kms": True, "ecr": True, "s3": []}
+
     detectors = {
         "iam": lambda client: client.list_users(MaxItems=1),
         "ec2": lambda client: client.describe_instances(MaxResults=1),
