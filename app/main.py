@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
 
 from .routes.auth_test import router as auth_test_router
 from .routes.events import router as events_router
@@ -10,9 +12,16 @@ from .routes.ui import router as ui_router
 from .settings import get_settings
 from .store import init_db
 
-settings = get_settings()
 
-app = FastAPI(title="CloudArena API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    init_db(settings.database_url)
+    app.state.settings = settings
+    yield
+
+
+app = FastAPI(title="CloudArena API", version="0.1.0", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(auth_test_router)
 app.include_router(facts_router)
@@ -22,11 +31,7 @@ app.include_router(reports_router)
 app.include_router(ui_router)
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    init_db(settings.database_url)
-
-
 @app.get("/")
-async def root() -> dict[str, str]:
+async def root(request: Request) -> dict[str, str]:
+    settings = getattr(request.app.state, "settings", get_settings())
     return {"message": f"CloudArena API running in {settings.env} mode"}
