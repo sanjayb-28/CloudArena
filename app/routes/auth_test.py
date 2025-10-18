@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends
 
+__test__ = False
+
 from app.auth import require_auth
 
 router = APIRouter()

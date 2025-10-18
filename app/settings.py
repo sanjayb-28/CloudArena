@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     celery_result_backend: Optional[str] = None
     auth_token: Optional[str] = None
     api_base_url: str = "http://api:8000"
+    auth0_m2m_client_id: Optional[str] = None
+    auth0_m2m_client_secret: Optional[str] = None
+    auth0_m2m_audience: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

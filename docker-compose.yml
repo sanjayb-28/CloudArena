@@ -35,6 +35,9 @@ services:
       - .env
     environment:
       AWS_PROFILE: ${AWS_PROFILE}
+      AUTH0_M2M_CLIENT_ID: ${AUTH0_M2M_CLIENT_ID}
+      AUTH0_M2M_CLIENT_SECRET: ${AUTH0_M2M_CLIENT_SECRET}
+      AUTH0_M2M_AUDIENCE: ${AUTH0_M2M_AUDIENCE}
     depends_on:
       - redis
     restart: unless-stopped

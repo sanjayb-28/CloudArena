@@ -1,5 +1,6 @@
 import logging
 import signal
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -16,6 +17,9 @@ from .celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_SECONDS = 120
+
+
+_token_cache: Dict[str, Any] = {"token": None, "expires": 0.0}
 
 
 class StepTimeoutError(Exception):
@@ -59,7 +63,10 @@ def _post_event(
     url = settings.api_base_url.rstrip("/") + "/events"
 
     headers = {"Content-Type": "application/json"}
-    if settings.auth_token:
+    token = get_bearer_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif settings.auth_token:
         headers["Authorization"] = f"Bearer {settings.auth_token}"
 
     event_body: Dict[str, Any] = {
@@ -233,3 +240,47 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
     )
 
     return "queued"
+
+
+def get_bearer_token() -> Optional[str]:
+    settings = get_settings()
+
+    client_id = settings.auth0_m2m_client_id
+    client_secret = settings.auth0_m2m_client_secret
+    audience = settings.auth0_m2m_audience
+    domain = settings.auth0_domain
+
+    if not all([client_id, client_secret, audience, domain]):
+        return settings.auth_token
+
+    now = time.time()
+    cached = _token_cache.get("token")
+    expires = _token_cache.get("expires", 0)
+    if cached and expires > now + 10:
+        return cached
+
+    token_url = f"https://{domain}/oauth/token"
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "audience": audience,
+    }
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(token_url, data=data)
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPError as exc:
+        logger.error("Failed to obtain Auth0 M2M token: %s", exc)
+        return settings.auth_token
+
+    access_token = payload.get("access_token")
+    expires_in = payload.get("expires_in", 0)
+    if access_token:
+        _token_cache["token"] = access_token
+        _token_cache["expires"] = now + int(expires_in)
+        return access_token
+
+    return settings.auth_token
