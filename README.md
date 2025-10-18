@@ -1,6 +1,6 @@
 # CloudArena
 
-CloudArena is a modular platform for orchestrating agentic security exercises inside a fully managed AWS sandbox. The project combines infrastructure automation (Terraform), Python-based planning and execution bots, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely.
+CloudArena is a modular platform for orchestrating agentic security exercises inside a fully managed AWS sandbox. The project combines Python-based planning and execution bots, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely.
 
 ## Project Goals
 
@@ -16,14 +16,17 @@ CloudArena is a modular platform for orchestrating agentic security exercises in
 - `app/` – Python application layer orchestrating agents, planners, adapters, ingestion, reporting, and UI routes.
 - `catalog/` – ATT&CK technique definitions and remediation guidance referenced by the planner and reporters.
 - `docker/` – Container definitions and local development helpers.
-- `tests/` – Automated test suites covering infrastructure modules and application logic.
+- `docs/` – Living product overview and operational notes (see `docs/PROJECT_OVERVIEW.md`).
 
 ## Getting Started
 
-1. Install prerequisites (Terraform, Python 3.11+, Docker) and authenticate with AWS and Auth0.
-2. Copy environment templates (to be added) and configure credentials for the sandbox.
-3. Use the forthcoming `make` targets or Terraform wrappers to bootstrap the infrastructure and supporting services.
-4. Launch the application workers to begin planning, executing, and reporting on cloud security scenarios.
+1. Install prerequisites (Python 3.11+, Docker) and authenticate the CLI with the AWS sandbox account defined in `ARENA_ACCOUNT_ID`.
+2. Populate `.env` with Auth0 configuration (`AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_CALLBACK_URL`, `SESSION_SECRET`) and generate a strong `AUTH_TOKEN` value for the worker to use when posting events.
+3. Build and launch the stack with `docker compose up --build`. The worker image bootstraps the Stratus CLI during build, so the first build requires outbound internet access.
+4. Browse to `http://localhost:8000/ui`, authenticate via Auth0, create a run, and observe the event stream and generated report.
+5. Consult `docs/PROJECT_OVERVIEW.md` for deeper architecture details, operational guidance, and the current roadmap.
+
+Auth0 setup cheat sheet: create a Regular Web Application, add `http://localhost:8000/auth/callback` to its allowed callbacks, create/verify an API with Identifier `https://cloudarena.api` (or your chosen audience), and copy the app’s client ID/secret into `.env`. No machine-to-machine client is required—the worker authenticates with the static `AUTH_TOKEN`.
 
 ## Contributing
 

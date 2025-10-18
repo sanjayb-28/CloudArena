@@ -14,7 +14,6 @@ services:
       - ./catalog:/usr/src/catalog:ro
       - ~/.aws:/root/.aws:ro
       - ./.data:/data
-      - ./tests:/usr/src/tests:ro
     env_file:
       - .env
     environment:
@@ -40,9 +39,8 @@ services:
       - .env
     environment:
       AWS_PROFILE: ${AWS_PROFILE}
-      AUTH0_M2M_CLIENT_ID: ${AUTH0_M2M_CLIENT_ID}
-      AUTH0_M2M_CLIENT_SECRET: ${AUTH0_M2M_CLIENT_SECRET}
-      AUTH0_M2M_AUDIENCE: ${AUTH0_M2M_AUDIENCE}
+      API_BASE_URL: http://api:8000
     depends_on:
       - redis
+      - api
     restart: unless-stopped

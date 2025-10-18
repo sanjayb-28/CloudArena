@@ -98,25 +98,12 @@ def _list_bucket_summaries(s3_client) -> List[Dict[str, Any]]:
 
 async def gather_facts() -> Dict[str, Any]:
     settings = get_settings()
-    if settings.simulation_mode:
-        return {
-            "account": settings.arena_account_id or "999999999999",
-            "region": settings.region,
-            "services": {
-                "iam": True,
-                "ec2": True,
-                "kms": True,
-                "ecr": True,
-                "s3": [
-                    {"name": "public-audit-logs", "public": True},
-                    {"name": "internal-datasets", "public": False},
-                ],
-            },
-        }
+
+    client_kwargs = {"region_name": settings.region} if settings.region else {}
 
     try:
-        sts_client = boto3.client("sts")
-        s3_client = boto3.client("s3")
+        sts_client = boto3.client("sts", **client_kwargs)
+        s3_client = boto3.client("s3", **client_kwargs)
     except NoCredentialsError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -147,10 +134,6 @@ async def gather_facts() -> Dict[str, Any]:
 
 
 def _detect_service_capabilities(region: Optional[str]) -> Dict[str, Any]:
-    settings = get_settings()
-    if settings.simulation_mode:
-        return {"iam": True, "ec2": True, "kms": True, "ecr": True, "s3": []}
-
     detectors = {
         "iam": lambda client: client.list_users(MaxItems=1),
         "ec2": lambda client: client.describe_instances(MaxResults=1),

@@ -8,7 +8,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /usr/src
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl git golang && \
+    GOBIN=/usr/local/bin go install github.com/DataDog/stratus-red-team/cmd/stratus@latest && \
+    apt-get purge -y --auto-remove git golang && \
+    rm -rf /var/lib/apt/lists/* /root/go /root/.cache/go-build
+
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY app /usr/src/app
+COPY catalog /usr/src/catalog

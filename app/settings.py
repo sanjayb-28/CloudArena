@@ -27,13 +27,9 @@ class Settings(BaseSettings):
     celery_result_backend: Optional[str] = None
     auth_token: Optional[str] = None
     api_base_url: str = Field(default="http://api:8000", env="API_BASE_URL")
-    auth0_m2m_client_id: Optional[str] = None
-    auth0_m2m_client_secret: Optional[str] = None
-    auth0_m2m_audience: Optional[str] = None
     session_secret: str = Field(default="change-me-session-secret", env="SESSION_SECRET")
     session_cookie_max_age: int = Field(default=60 * 60 * 8, env="SESSION_COOKIE_MAX_AGE")
     session_cookie_secure: bool = Field(default=False, env="SESSION_COOKIE_SECURE")
-    simulation_mode: bool = Field(default=False, env="SIMULATION_MODE")
 
     model_config = SettingsConfigDict(
         env_file=".env",

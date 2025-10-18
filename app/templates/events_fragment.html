@@ -10,6 +10,7 @@
           <th>Status</th>
           <th>Severity</th>
           <th>Resource</th>
+          <th>Summary</th>
         </tr>
       </thead>
       <tbody>
@@ -22,6 +23,7 @@
             <td>{{ event.status or payload.status or "—" }}</td>
             <td>{{ event.severity or payload.severity or "—" }}</td>
             <td>{{ event.resource or payload.resource or "—" }}</td>
+            <td>{{ event.summary or payload.summary or "—" }}</td>
           </tr>
         {% endfor %}
       </tbody>

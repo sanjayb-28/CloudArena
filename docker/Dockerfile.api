@@ -12,3 +12,4 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY app /usr/src/app
+COPY catalog /usr/src/catalog
