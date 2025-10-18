@@ -15,7 +15,10 @@ def mock_httpx(monkeypatch):
 
         def raise_for_status(self):
             if self.status_code >= 400:
-                raise RuntimeError("HTTP error")
+                import httpx
+
+                request = httpx.Request("POST", "https://example")
+                raise httpx.HTTPStatusError("error", request=request, response=httpx.Response(self.status_code))
 
         def json(self):
             return self._payload
@@ -54,8 +57,10 @@ def test_auth0_m2m_token_success(monkeypatch, mock_httpx):
     monkeypatch.setenv("AUTH0_M2M_AUDIENCE", "https://audience")
     monkeypatch.setenv("AUTH0_DOMAIN", "example.auth0.com")
 
+    from app.settings import get_settings
     from app.workers.tasks import get_bearer_token, _token_cache
 
+    get_settings.cache_clear()
     _token_cache.clear()
     token = get_bearer_token()
 
@@ -73,8 +78,10 @@ def test_auth0_m2m_token_fallback(monkeypatch, mock_httpx):
     monkeypatch.setenv("AUTH0_DOMAIN", "example.auth0.com")
     monkeypatch.setenv("AUTH_TOKEN", "static-token")
 
+    from app.settings import get_settings
     from app.workers.tasks import get_bearer_token, _token_cache
 
+    get_settings.cache_clear()
     _token_cache.clear()
     token = get_bearer_token()
 

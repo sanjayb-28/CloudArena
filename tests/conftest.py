@@ -26,10 +26,12 @@ def facts_builder():
         public_buckets = public_buckets or []
         services = services or {}
         s3_entries = [{"name": name, "public": public} for name, public in public_buckets]
+        combined = {"s3": s3_entries, "iam": False, "ec2": False, "kms": False, "ecr": False}
+        combined.update(services)
         return {
             "account": "123456789012",
             "region": "us-east-1",
-            "services": {"s3": s3_entries, **services},
+            "services": combined,
         }
 
     return _builder

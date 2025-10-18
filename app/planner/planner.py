@@ -53,7 +53,8 @@ def _requirements_met(spec: TechniqueSpec, facts: Dict[str, Any]) -> bool:
     if services_required:
         services = _services_present(facts)
         for service in services_required:
-            if service not in services or services.get(service) in (None, []):
+            value = services.get(service)
+            if service not in services or value in (None, [], False):
                 return False
 
     # TODO: Evaluate predicate expressions when planner DSL is finalized.

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.reporter import render_report
 
@@ -19,7 +19,7 @@ def _build_event(
             "technique_id": technique_id,
             "status": "ok",
         },
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "severity": severity,
         "resource": resource,
         "summary": summary,
@@ -30,7 +30,7 @@ def _build_event(
 def test_reporter_generates_markdown_with_findings(facts_builder):
     facts = facts_builder(
         public_buckets=[("public-bucket", True)],
-        services={"iam": [{}], "ec2": [{}], "kms": [{}], "ecr": [{}]},
+        services={"iam": True, "ec2": True, "kms": True, "ecr": True},
     )
 
     events = [
@@ -64,7 +64,7 @@ def test_reporter_generates_markdown_with_findings(facts_builder):
             "run_id": "run-1",
             "event_type": "run.completed",
             "payload": {"event_type": "run.completed", "status": "ok", "step_count": 2},
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         },
     ]
 

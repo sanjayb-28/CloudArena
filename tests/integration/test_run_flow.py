@@ -12,6 +12,10 @@ def client(monkeypatch):
     from app.adapters import stratus as stratus_module
     from app.store import insert_event
     from app.workers import tasks as tasks_module
+    from app.routes import events as events_routes
+    from app.routes import runs as runs_routes
+    from app.routes import reports as reports_routes
+    from app.routes import facts as facts_routes
 
     def fake_run_sdk(technique_id: str, adapter: str, params):
         return {"ok": True, "findings": [f"finding-for-{technique_id}"]}
@@ -44,8 +48,11 @@ def client(monkeypatch):
     monkeypatch.setattr(tasks_module, "_post_event", fake_post_event)
 
     from app import auth as auth_module
-
-    monkeypatch.setattr(auth_module, "require_auth", fake_require_auth)
+    app.dependency_overrides[auth_module.require_auth] = lambda: {"sub": "test-user"}
+    app.dependency_overrides[events_routes.require_auth] = lambda: {"sub": "test-user"}
+    app.dependency_overrides[runs_routes.require_auth] = lambda: {"sub": "test-user"}
+    app.dependency_overrides[reports_routes.require_auth] = lambda: {"sub": "test-user"}
+    app.dependency_overrides[facts_routes.require_auth] = lambda: {"sub": "test-user"}
 
     return TestClient(app)
 

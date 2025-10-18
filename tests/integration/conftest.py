@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.settings import get_settings
+from app.store import init_db
+from app.workers.celery_app import celery_app
+
 
 @pytest.fixture(autouse=True)
 def integration_env(monkeypatch, tmp_path):
@@ -16,13 +20,8 @@ def integration_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CELERY_TASK_ALWAYS_EAGER", "1")
     monkeypatch.setenv("API_BASE_URL", "http://testserver")
 
-    from app.settings import get_settings
-
     get_settings.cache_clear()
     settings = get_settings()
-
-from app.store import init_db
-from app.workers.celery_app import celery_app
 
     init_db(settings.database_url)
     celery_app.conf.task_always_eager = True

@@ -1,8 +1,8 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import require_auth
@@ -119,12 +119,36 @@ async def gather_facts() -> Dict[str, Any]:
     region = session.region_name or get_settings().region
 
     s3_summaries = _list_bucket_summaries(s3_client)
+    service_flags = _detect_service_capabilities(region)
+    service_flags["s3"] = s3_summaries
 
     return {
         "account": account_id,
         "region": region,
-        "services": {"s3": s3_summaries},
+        "services": service_flags,
     }
+
+
+def _detect_service_capabilities(region: Optional[str]) -> Dict[str, Any]:
+    detectors = {
+        "iam": lambda client: client.list_users(MaxItems=1),
+        "ec2": lambda client: client.describe_instances(MaxResults=1),
+        "kms": lambda client: client.list_keys(Limit=1),
+        "ecr": lambda client: client.describe_repositories(maxResults=1),
+    }
+
+    flags: Dict[str, Any] = {}
+    for service, probe in detectors.items():
+        try:
+            if service in {"iam", "kms"}:
+                client = boto3.client(service)
+            else:
+                client = boto3.client(service, region_name=region) if region else boto3.client(service)
+            probe(client)
+            flags[service] = True
+        except (ClientError, BotoCoreError, NoCredentialsError, Exception):
+            flags[service] = False
+    return flags
 
 
 @router.get("/facts")

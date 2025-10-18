@@ -11,15 +11,17 @@ from app.adapters import sdk
 @pytest.fixture
 def monkeypatched_boto3_client(monkeypatch):
     stubs = {}
+    original_client = boto3.client
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
     def client(service_name, *args, **kwargs):
-        real_client = boto3.client(service_name, *args, **kwargs)
+        real_client = original_client(service_name, *args, **kwargs)
         stub = Stubber(real_client)
         stubs[service_name] = stub
         return real_client
 
-    monkeypatch.setattr(sdk.boto3, "client", client)
+    monkeypatch.setattr(sdk.boto3, "client", client, raising=False)
+    monkeypatch.setattr(boto3, "client", client, raising=False)
     yield stubs
     for stub in stubs.values():
         stub.assert_no_pending_responses()
@@ -73,7 +75,7 @@ def test_ec2_security_group_audit(monkeypatched_boto3_client):
     result = sdk.run_sdk("sdk.ec2.sg_audit", "sdk", {})
     assert result["ok"] is True
     findings = result["findings"]
-    assert any(f["security_group_id"] == "sg-open" for f in findings)
+    assert any(f["resource"] == "sg-open" and f["severity"] == "high" for f in findings)
 
 
 def test_kms_rotation_audit(monkeypatched_boto3_client):
@@ -87,7 +89,9 @@ def test_kms_rotation_audit(monkeypatched_boto3_client):
     result = sdk.run_sdk("sdk.kms.rotation_audit", "sdk", {})
     assert result["ok"] is True
     findings = result["findings"]
-    assert findings == [{"key_id": "1234", "issue": "rotation_disabled"}]
+    assert findings == [
+        {"resource": "1234", "issue": "KMS key rotation disabled", "severity": "medium", "evidence": {"rotation_enabled": False}}
+    ]
 
 
 def test_iam_key_age(monkeypatched_boto3_client):
@@ -105,7 +109,7 @@ def test_iam_key_age(monkeypatched_boto3_client):
     result = sdk.run_sdk("sdk.iam.key_age", "sdk", {})
     assert result["ok"] is True
     findings = result["findings"]
-    assert findings and findings[0]["access_key_id"] == "AKIAOLD"
+    assert findings and findings[0]["resource"].endswith("AKIAOLD")
 
 
 def test_s3_public_policy(monkeypatched_boto3_client):
@@ -132,4 +136,4 @@ def test_s3_public_policy(monkeypatched_boto3_client):
     result = sdk.run_sdk("sdk.s3.public_policy_audit", "sdk", {})
     assert result["ok"] is True
     findings = result["findings"]
-    assert any(f.get("bucket") == "open-bucket" and f.get("public") for f in findings)
+    assert any(f.get("resource") == "open-bucket" and f.get("severity") == "medium" for f in findings)

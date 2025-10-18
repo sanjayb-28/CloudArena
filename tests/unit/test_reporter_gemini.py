@@ -13,6 +13,10 @@ def facts_builder():
             "region": "us-east-1",
             "services": {
                 "s3": [{"name": "bucket", "public": public}],
+                "iam": True,
+                "ec2": True,
+                "kms": True,
+                "ecr": True,
             },
         }
 
