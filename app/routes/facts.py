@@ -6,6 +6,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import require_auth
+from app.settings import get_settings
 
 router = APIRouter()
 
@@ -114,10 +115,14 @@ async def gather_facts() -> Dict[str, Any]:
             detail="Failed to fetch AWS account identity.",
         ) from exc
 
+    session = boto3.session.Session()
+    region = session.region_name or get_settings().region
+
     s3_summaries = _list_bucket_summaries(s3_client)
 
     return {
         "account": account_id,
+        "region": region,
         "services": {"s3": s3_summaries},
     }
 

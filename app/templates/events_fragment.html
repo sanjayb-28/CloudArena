@@ -1,0 +1,32 @@
+<div id="events-panel">
+  <h3>Event Stream</h3>
+  {% if events %}
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Technique</th>
+          <th>Phase</th>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Resource</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+          {% set payload = event.payload or {} %}
+          <tr>
+            <td>{{ event.ts }}</td>
+            <td>{{ event.technique_id or payload.technique_id or "—" }}</td>
+            <td>{{ event.phase or payload.phase or "—" }}</td>
+            <td>{{ event.status or payload.status or "—" }}</td>
+            <td>{{ event.severity or payload.severity or "—" }}</td>
+            <td>{{ event.resource or payload.resource or "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No events recorded yet.</p>
+  {% endif %}
+</div>

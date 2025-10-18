@@ -1,13 +1,15 @@
 import json
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from fastapi.templating import Jinja2Templates
 
 from app.auth import require_auth
 from app.models import Event
 from app.store import insert_event, list_events
 
 router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
 
 
 @router.post("/events")
@@ -37,6 +39,21 @@ async def create_event(event: Event, _: Dict[str, Any] = Depends(require_auth)) 
 
 
 @router.get("/events/{run_id}")
-async def get_events(run_id: str, _: Dict[str, Any] = Depends(require_auth)) -> Dict[str, List[Dict[str, Any]]]:
+async def get_events(
+    request: Request,
+    run_id: str,
+    _: Dict[str, Any] = Depends(require_auth),
+):
     events = list_events(run_id)
+    if request.headers.get("HX-Request") == "true":
+        return templates.TemplateResponse(
+            "events_fragment.html",
+            {
+                "request": request,
+                "run_id": run_id,
+                "events": events,
+            },
+            media_type="text/html",
+        )
+
     return {"events": events}

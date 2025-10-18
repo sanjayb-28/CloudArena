@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+  <a href="/ui">← Back to dashboard</a>
+  <section class="card">
+    <h2>Run {{ run.run_id }}</h2>
+    <p>Created: {{ run.created_at }} · Goals: {{ run.goals or "—" }}</p>
+
+    <h3>Runbook Steps</h3>
+    {% if runbook.steps %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Technique</th>
+            <th>Parameters</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for step in runbook.steps %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ step.technique_id }}</td>
+              <td><code>{{ step.params }}</code></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No steps recorded in this runbook.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div id="events-panel" hx-get="/events/{{ run.run_id }}" hx-trigger="load, every 2s" hx-target="#events-panel" hx-swap="outerHTML">
+      {% include "events_fragment.html" %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Generate Report</h3>
+    <form hx-post="/ui/runs/{{ run.run_id }}/reports" hx-target="#report-output" hx-swap="innerHTML">
+      <button type="submit">Generate Markdown Report</button>
+    </form>
+    <div id="report-output" style="margin-top: 1rem;"></div>
+  </section>
+{% endblock %}

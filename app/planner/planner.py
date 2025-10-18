@@ -39,6 +39,10 @@ def _load_techniques() -> Dict[str, TechniqueSpec]:
     return techniques
 
 
+def get_technique_spec(technique_id: str) -> Optional[TechniqueSpec]:
+    return _load_techniques().get(technique_id)
+
+
 def _services_present(facts: Dict[str, Any]) -> Dict[str, Any]:
     return facts.get("services", {}) or {}
 

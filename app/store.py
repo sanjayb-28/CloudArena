@@ -98,6 +98,20 @@ def get_run(run_id: str) -> Optional[Dict[str, Any]]:
         return dict(row)
 
 
+def list_runs(limit: int = 20) -> List[Dict[str, Any]]:
+    with _connect() as conn:
+        cursor = conn.execute(
+            """
+            SELECT run_id, goals, runbook_json, created_at
+            FROM runs
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
 def insert_event(
     run_id: str,
     ts: str,
