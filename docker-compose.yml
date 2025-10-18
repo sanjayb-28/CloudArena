@@ -10,6 +10,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./app:/usr/src/app
+      - ./tests:/usr/src/tests:ro
       - ./catalog:/usr/src/catalog:ro
       - ~/.aws:/root/.aws:ro
     env_file:

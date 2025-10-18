@@ -15,4 +15,5 @@ loguru==0.7.2
 markdown2==2.5.0
 PyYAML==6.0.2
 pytest==8.3.2
+python-multipart==0.0.9
 black==24.8.0
