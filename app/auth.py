@@ -96,4 +96,8 @@ async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(_bear
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token not provided.")
 
+    settings = get_settings()
+    if settings.auth_token and token == settings.auth_token:
+        return {"sub": "internal-service", "token_type": "static"}
+
     return await _verify_jwt(token)

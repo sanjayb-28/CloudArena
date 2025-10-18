@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./cloudarena.db"
     redis_url: str = "redis://redis:6379/0"
     celery_result_backend: Optional[str] = None
+    auth_token: Optional[str] = None
+    api_base_url: str = "http://api:8000"
 
     model_config = SettingsConfigDict(
         env_file=".env",

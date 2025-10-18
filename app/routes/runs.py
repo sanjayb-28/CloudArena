@@ -9,7 +9,7 @@ from app.models import Event, RunStep, Runbook
 from app.planner import plan
 from app.routes.events import record_event
 from app.routes.facts import gather_facts
-from app.workers.celery_app import execute_runbook
+from app.workers.tasks import execute_runbook
 
 router = APIRouter()
 
