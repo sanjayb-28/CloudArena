@@ -10,7 +10,7 @@ WORKDIR /usr/src
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl git golang && \
-    GOBIN=/usr/local/bin go install github.com/DataDog/stratus-red-team/cmd/stratus@latest && \
+    GOBIN=/usr/local/bin go install github.com/datadog/stratus-red-team/cmd/stratus@latest && \
     apt-get purge -y --auto-remove git golang && \
     rm -rf /var/lib/apt/lists/* /root/go /root/.cache/go-build
 

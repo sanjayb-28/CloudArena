@@ -11,19 +11,73 @@
           <th>Severity</th>
           <th>Resource</th>
           <th>Summary</th>
+          <th>Artifacts</th>
         </tr>
       </thead>
       <tbody>
         {% for event in events %}
           {% set payload = event.payload or {} %}
+          {% set phase = event.phase or payload.phase %}
+          {% set status_value = event.status or payload.status %}
           <tr>
             <td>{{ event.ts }}</td>
             <td>{{ event.technique_id or payload.technique_id or "—" }}</td>
-            <td>{{ event.phase or payload.phase or "—" }}</td>
-            <td>{{ event.status or payload.status or "—" }}</td>
+            <td class="{% if phase == 'error' %}text-error{% endif %}">{{ phase or "—" }}</td>
+            <td>
+              {% if status_value %}
+                {% set status_class = status_value | lower | replace(' ', '-') %}
+                <span class="status-badge status-{{ status_class }}">
+                  {% if status_class in ["queued", "running"] %}
+                    <span class="spinner"></span>
+                  {% endif %}
+                  {{ status_value | capitalize }}
+                </span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
             <td>{{ event.severity or payload.severity or "—" }}</td>
             <td>{{ event.resource or payload.resource or "—" }}</td>
-            <td>{{ event.summary or payload.summary or "—" }}</td>
+            <td>
+              {% if event.summary %}
+                {{ event.summary }}
+              {% elif payload.summary %}
+                {{ payload.summary }}
+              {% elif event.details and event.details.error %}
+                {{ event.details.error }}
+              {% else %}
+                —
+              {% endif %}
+              {% if event.details and event.details.findings %}
+                <details>
+                  <summary>Details</summary>
+                  <pre>{{ event.details.findings | tojson(indent=2) }}</pre>
+                </details>
+              {% elif event.details %}
+                <details>
+                  <summary>Details</summary>
+                  <pre>{{ event.details | tojson(indent=2) }}</pre>
+                </details>
+              {% endif %}
+            </td>
+            <td>
+              {% if event.artifacts %}
+                <ul>
+                  {% for artifact in event.artifacts %}
+                    <li>
+                      <code>{{ artifact.type }}</code>:
+                      {% if artifact.uri %}
+                        <a href="{{ artifact.uri }}" target="_blank" rel="noopener">{{ artifact.uri }}</a>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                —
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>

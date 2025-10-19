@@ -21,6 +21,7 @@
           <tr>
             <th>Run ID</th>
             <th>Created</th>
+            <th>Status</th>
             <th>Goals</th>
             <th>Steps</th>
           </tr>
@@ -30,8 +31,22 @@
             <tr>
               <td><a href="/ui/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
               <td>{{ run.created_at }}</td>
+              <td>
+                {% if run.status %}
+                  {% set status_value = run.status %}
+                  {% set status_class = status_value | lower | replace(' ', '-') %}
+                  <span class="status-badge status-{{ status_class }}">
+                    {% if status_class in ["queued", "running"] %}
+                      <span class="spinner"></span>
+                    {% endif %}
+                    {{ status_value | capitalize }}
+                  </span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
               <td>{{ run.goals or "—" }}</td>
-              <td>{{ run.runbook.steps | length if run.runbook and run.runbook.steps else 0 }}</td>
+              <td>{{ run.runbook.get('steps') | length if run.runbook and run.runbook.get('steps') else 0 }}</td>
             </tr>
           {% endfor %}
         </tbody>

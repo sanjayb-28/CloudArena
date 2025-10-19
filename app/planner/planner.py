@@ -1,5 +1,4 @@
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -12,9 +11,24 @@ logger = logging.getLogger(__name__)
 
 CATALOG_DIR = Path(__file__).resolve().parent.parent.parent / "catalog" / "techniques"
 
+_TECHNIQUE_CACHE: Dict[str, TechniqueSpec] = {}
+_CATALOG_SIGNATURE: Optional[tuple[tuple[str, int], ...]] = None
 
-@lru_cache(maxsize=1)
-def _load_techniques() -> Dict[str, TechniqueSpec]:
+
+def _catalog_signature() -> tuple[tuple[str, int], ...]:
+    if not CATALOG_DIR.exists():
+        return ()
+
+    signature: list[tuple[str, int]] = []
+    for path in sorted(CATALOG_DIR.glob("*.y*ml")):
+        try:
+            signature.append((str(path), path.stat().st_mtime_ns))
+        except OSError as exc:
+            logger.warning("Failed to stat catalog file %s: %s", path, exc)
+    return tuple(signature)
+
+
+def _load_catalog_files() -> Dict[str, TechniqueSpec]:
     techniques: Dict[str, TechniqueSpec] = {}
     if not CATALOG_DIR.exists():
         logger.warning("Technique catalog directory %s does not exist.", CATALOG_DIR)
@@ -36,7 +50,18 @@ def _load_techniques() -> Dict[str, TechniqueSpec]:
 
         techniques[spec.id] = spec
 
+    logger.debug("Loaded %s technique definitions from catalog", len(techniques))
     return techniques
+
+
+def _load_techniques() -> Dict[str, TechniqueSpec]:
+    global _TECHNIQUE_CACHE, _CATALOG_SIGNATURE
+
+    signature = _catalog_signature()
+    if _CATALOG_SIGNATURE != signature:
+        _TECHNIQUE_CACHE = _load_catalog_files()
+        _CATALOG_SIGNATURE = signature
+    return _TECHNIQUE_CACHE
 
 
 def get_technique_spec(technique_id: str) -> Optional[TechniqueSpec]:
@@ -47,7 +72,12 @@ def _services_present(facts: Dict[str, Any]) -> Dict[str, Any]:
     return facts.get("services", {}) or {}
 
 
-def _requirements_met(spec: TechniqueSpec, facts: Dict[str, Any]) -> bool:
+def _requirements_met(
+    spec: TechniqueSpec,
+    facts: Dict[str, Any],
+    *,
+    context: Optional[Dict[str, Any]] = None,
+) -> bool:
     requires = spec.requires or {}
     services_required = requires.get("services") or []
     if services_required:
@@ -57,8 +87,112 @@ def _requirements_met(spec: TechniqueSpec, facts: Dict[str, Any]) -> bool:
             if service not in services or value in (None, [], False):
                 return False
 
-    # TODO: Evaluate predicate expressions when planner DSL is finalized.
+    predicates = requires.get("predicates") or []
+    for predicate in predicates:
+        try:
+            predicate_ok = _evaluate_predicate(predicate, facts, context or {})
+        except ValueError as exc:
+            logger.error(
+                "Technique %s predicate '%s' evaluation error: %s",
+                spec.id,
+                predicate,
+                exc,
+            )
+            return False
+        if not predicate_ok:
+            logger.debug(
+                "Technique %s predicate '%s' not satisfied with context %s",
+                spec.id,
+                predicate,
+                context,
+            )
+            return False
+
     return True
+
+
+def _evaluate_predicate(expression: str, facts: Dict[str, Any], context: Dict[str, Any]) -> bool:
+    expr = (expression or "").strip()
+    if not expr:
+        return True
+
+    for operator in (" not in ", " in ", "==", "!=", ">=", "<=", ">", "<"):
+        if operator in expr:
+            left, right = expr.split(operator, 1)
+            left_value = _resolve_value(left.strip(), facts, context)
+            right_value = _resolve_value(right.strip(), facts, context)
+            op = operator.strip()
+
+            try:
+                if op == "in":
+                    if right_value is None:
+                        return False
+                    return left_value in right_value  # type: ignore[operator]
+                if op == "not in":
+                    if right_value is None:
+                        return True
+                    return left_value not in right_value  # type: ignore[operator]
+                if op == "==":
+                    return left_value == right_value
+                if op == "!=":
+                    return left_value != right_value
+                if op == ">":
+                    return left_value > right_value  # type: ignore[operator]
+                if op == ">=":
+                    return left_value >= right_value  # type: ignore[operator]
+                if op == "<":
+                    return left_value < right_value  # type: ignore[operator]
+                if op == "<=":
+                    return left_value <= right_value  # type: ignore[operator]
+            except TypeError:
+                return False
+
+    raise ValueError(f"Unsupported predicate expression '{expression}'")
+
+
+def _resolve_value(token: str, facts: Dict[str, Any], context: Dict[str, Any]) -> Any:
+    normalized = token.strip()
+    lower = normalized.lower()
+    if lower in {"true", "false"}:
+        return lower == "true"
+    if lower in {"null", "none"}:
+        return None
+
+    if (normalized.startswith("\"") and normalized.endswith("\"")) or (
+        normalized.startswith("'") and normalized.endswith("'")
+    ):
+        return normalized[1:-1]
+
+    try:
+        if "." in normalized:
+            return float(normalized)
+        return int(normalized)
+    except ValueError:
+        pass
+
+    path_parts = normalized.split(".")
+    head = path_parts[0]
+
+    if head in context:
+        value: Any = context[head]
+    else:
+        value = facts.get(head)
+
+    for part in path_parts[1:]:
+        if isinstance(value, dict):
+            value = value.get(part)
+        elif isinstance(value, list):
+            try:
+                index = int(part)
+            except ValueError:
+                return None
+            if index < 0 or index >= len(value):
+                return None
+            value = value[index]
+        else:
+            return None
+
+    return value
 
 
 def _merge_params(spec: TechniqueSpec, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -81,14 +215,16 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
 
     # Prioritize public S3 access simulations.
     s3_spec = techniques.get("T-S3-001")
-    if s3_spec and _requirements_met(s3_spec, facts):
+    if s3_spec:
         for bucket in services.get("s3", []) or []:
-            if bucket.get("public"):
-                params = _merge_params(
-                    s3_spec,
-                    {"bucket": bucket.get("name")},
-                )
-                runbook.add_step(RunbookStep(technique_id=s3_spec.id, params=params))
+            context = {"bucket": bucket}
+            if not _requirements_met(s3_spec, facts, context=context):
+                continue
+            params = _merge_params(
+                s3_spec,
+                {"bucket": bucket.get("name")},
+            )
+            runbook.add_step(RunbookStep(technique_id=s3_spec.id, params=params))
 
     def _enqueue_if_applicable(technique_id: str) -> None:
         spec = techniques.get(technique_id)

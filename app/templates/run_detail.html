@@ -3,10 +3,27 @@
   <a href="/ui">← Back to dashboard</a>
   <section class="card">
     <h2>Run {{ run.run_id }}</h2>
-    <p>Created: {{ run.created_at }} · Goals: {{ run.goals or "—" }}</p>
+    <p>
+      Created: {{ run.created_at }}
+      · Status:
+      {% if run.status %}
+        {% set status_value = run.status %}
+        {% set status_class = status_value | lower | replace(' ', '-') %}
+        <span class="status-badge status-{{ status_class }}">
+          {% if status_class in ["queued", "running"] %}
+            <span class="spinner"></span>
+          {% endif %}
+          {{ status_value | capitalize }}
+        </span>
+      {% else %}
+        —
+      {% endif %}
+      {% if run.completed_at %}· Completed: {{ run.completed_at }}{% endif %}
+      · Goals: {{ run.goals or "—" }}
+    </p>
 
     <h3>Runbook Steps</h3>
-    {% if runbook.steps %}
+    {% if runbook.get('steps') %}
       <table>
         <thead>
           <tr>
@@ -16,7 +33,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for step in runbook.steps %}
+          {% for step in runbook.get('steps') %}
             <tr>
               <td>{{ loop.index }}</td>
               <td>{{ step.technique_id }}</td>

@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.settings import get_settings
 
-SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
+SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
 
 
 def render_report(facts: dict, events: Iterable[Any]) -> str:
@@ -159,10 +159,20 @@ def _aggregate_steps(events: Sequence[dict]) -> List[Dict[str, Any]]:
 
 
 def _build_summary_section(steps: List[Dict[str, Any]]) -> Tuple[str, str]:
-    severity_counts = Counter((record.get("severity") or "low").lower() for record in steps if record.get("severity"))
+    severity_counts = Counter((record.get("severity") or "informational").lower() for record in steps)
+
+    parts = [
+        f"High: **{severity_counts.get('high', 0)}**",
+        f"Medium: **{severity_counts.get('medium', 0)}**",
+    ]
+    if severity_counts.get("low", 0):
+        parts.append(f"Low: **{severity_counts.get('low', 0)}**")
+    if severity_counts.get("informational", 0):
+        parts.append(f"Informational: **{severity_counts.get('informational', 0)}**")
+
     summary_lines = [
         "## Executive Summary",
-        f"- High: **{severity_counts.get('high', 0)}** | Medium: **{severity_counts.get('medium', 0)}** | Low: **{severity_counts.get('low', 0)}**",
+        "- " + " | ".join(parts),
     ]
 
     ranked_steps = sorted(
@@ -172,21 +182,27 @@ def _build_summary_section(steps: List[Dict[str, Any]]) -> Tuple[str, str]:
             -(len(rec.get("findings") or [])),
         ),
     )
-    top_risks = [
-        f"- **{rec.get('technique_id') or 'Unknown'}**: {rec.get('summary') or _default_summary(rec)}"
-        for rec in ranked_steps
-        if rec.get("summary") or rec.get("findings")
-    ][:3]
 
-    if top_risks:
+    top_risk_entries: List[str] = []
+    for rec in ranked_steps:
+        severity = (rec.get("severity") or "informational").lower()
+        findings = rec.get("findings") or []
+        if severity == "informational" and not findings:
+            continue
+        summary_text = rec.get("summary") or _default_summary(rec)
+        top_risk_entries.append(f"- **{rec.get('technique_id') or 'Unknown'}**: {summary_text}")
+        if len(top_risk_entries) == 3:
+            break
+
+    if top_risk_entries:
         summary_lines.append("### Top Risks")
-        summary_lines.extend(top_risks)
+        summary_lines.extend(top_risk_entries)
     else:
         summary_lines.append("### Top Risks\n- No significant risks detected.")
 
     summary_markdown = "\n".join(summary_lines)
     summary_plain = "\n".join(line.lstrip("- ") for line in summary_lines if line.startswith("- "))
-    summary_plain += "\n" + "\n".join(top_risks)
+    summary_plain += "\n" + "\n".join(top_risk_entries)
     return summary_markdown, summary_plain.strip()
 
 
@@ -208,13 +224,13 @@ def _build_findings_table(steps: List[Dict[str, Any]]) -> str:
         findings = record.get("findings") or []
         if findings:
             for finding in findings:
-                severity = (finding.get("severity") or record.get("severity") or "low").title()
+                severity = (finding.get("severity") or record.get("severity") or "informational").title()
                 resource = finding.get("resource") or record.get("resource") or "n/a"
                 issue = finding.get("issue") or record.get("summary") or "n/a"
                 evidence = _format_evidence(finding.get("evidence"))
                 rows.append(f"| {technique} | {severity} | {resource} | {issue} | {evidence} |")
         else:
-            severity = (record.get("severity") or "low").title()
+            severity = (record.get("severity") or "informational").title()
             resource = record.get("resource") or "n/a"
             issue = record.get("summary") or _default_summary(record)
             evidence = _format_evidence(record.get("details"))

@@ -10,6 +10,52 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 
+SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
+
+
+def _overall_severity(findings: List[Dict[str, Any]], default: str = "informational") -> str:
+    highest = default
+    for finding in findings:
+        severity = str(finding.get("severity") or highest).lower()
+        if SEVERITY_ORDER.get(severity, 0) > SEVERITY_ORDER.get(highest, 0):
+            highest = severity
+    return highest
+
+
+def _result_ok(
+    summary: str,
+    *,
+    findings: Optional[List[Dict[str, Any]]] = None,
+    severity: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+    extras: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"ok": True, "summary": summary}
+    if findings is not None:
+        result["findings"] = findings
+        severity = severity or _overall_severity(findings)
+    if severity:
+        result["severity"] = severity
+    if details is not None:
+        result["details"] = details
+    if extras:
+        result.update(extras)
+    return result
+
+
+def _result_error(message: str, *, severity: str = "high", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "ok": False,
+        "error": message,
+        "summary": message,
+    }
+    if severity:
+        result["severity"] = severity
+    if details is not None:
+        result["details"] = details
+    return result
+
+
 def _list_iam_roles() -> List[str]:
     iam = boto3.client("iam")
     roles: List[str] = []
@@ -239,24 +285,60 @@ def run_sdk(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict[str
     try:
         if technique_id == "sdk.iam.enum":
             roles = _list_iam_roles()
-            return {"ok": True, "roles": roles}
+            summary = f"Enumerated {len(roles)} IAM roles"
+            details = {"role_count": len(roles), "roles": roles[:50]}
+            return _result_ok(summary, severity="informational", details=details, extras={"roles": roles})
 
         if technique_id == "sdk.ecr.enum":
             repos = _list_ecr_repositories()
-            return {"ok": True, "repositories": repos}
+            summary = f"Enumerated {len(repos)} ECR repositories"
+            details = {"repository_count": len(repos), "repositories": repos[:50]}
+            return _result_ok(summary, severity="informational", details=details, extras={"repositories": repos})
 
         if technique_id == "sdk.ec2.sg_audit":
-            return {"ok": True, "findings": _audit_security_groups()}
+            findings = _audit_security_groups()
+            summary = (
+                "No internet-exposed security groups detected"
+                if not findings
+                else f"Identified {len(findings)} security groups with 0.0.0.0/0 ingress"
+            )
+            details = {"finding_count": len(findings)}
+            severity = "informational" if not findings else "medium"
+            return _result_ok(summary, findings=findings, details=details, severity=severity)
 
         if technique_id == "sdk.kms.rotation_audit":
-            return {"ok": True, "findings": _audit_kms_rotation()}
+            findings = _audit_kms_rotation()
+            summary = (
+                "All KMS keys have rotation enabled"
+                if not findings
+                else f"{len(findings)} KMS keys require rotation attention"
+            )
+            details = {"finding_count": len(findings)}
+            severity = "informational" if not findings else "medium"
+            return _result_ok(summary, findings=findings, details=details, severity=severity)
 
         if technique_id == "sdk.iam.key_age":
-            return {"ok": True, "findings": _audit_iam_key_age()}
+            findings = _audit_iam_key_age()
+            summary = (
+                "No stale IAM access keys detected"
+                if not findings
+                else f"{len(findings)} IAM access keys exceed age policy"
+            )
+            details = {"finding_count": len(findings)}
+            severity = "informational" if not findings else "medium"
+            return _result_ok(summary, findings=findings, details=details, severity=severity)
 
         if technique_id == "sdk.s3.public_policy_audit":
-            return {"ok": True, "findings": _audit_s3_public_policies()}
+            findings = _audit_s3_public_policies()
+            summary = (
+                "No publicly accessible S3 bucket policies detected"
+                if not findings
+                else f"{len(findings)} S3 buckets expose public access via policy"
+            )
+            details = {"finding_count": len(findings)}
+            severity = "informational" if not findings else "medium"
+            return _result_ok(summary, findings=findings, details=details, severity=severity)
     except (BotoCoreError, ClientError) as exc:
-        return {"ok": False, "error": str(exc)}
+        return _result_error(str(exc), severity="high")
 
     raise ValueError(f"Unsupported SDK technique '{technique_id}'")

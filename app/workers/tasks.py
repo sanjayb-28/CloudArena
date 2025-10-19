@@ -1,9 +1,10 @@
 import logging
 import signal
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import httpx
 
@@ -17,7 +18,7 @@ from .celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_SECONDS = 120
-SEVERITY_ORDER = {"low": 1, "medium": 2, "high": 3}
+SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
 
 
 class StepTimeoutError(Exception):
@@ -34,7 +35,7 @@ class StepExecutionError(Exception):
 
 
 @contextmanager
-def _step_timeout(seconds: int) -> None:
+def _step_timeout(seconds: int) -> Generator[None, None, None]:
     if seconds <= 0:
         yield
         return
@@ -97,9 +98,29 @@ def _post_event(
     if details is not None:
         event_body["details"] = details
 
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(url, json=event_body, headers=headers)
-        response.raise_for_status()
+    backoff = 1.0
+    attempt = 0
+    max_attempts = 5
+
+    while True:
+        attempt += 1
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.post(url, json=event_body, headers=headers)
+                response.raise_for_status()
+            return
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if status_code < 500 and status_code not in {429}:
+                raise
+        except httpx.RequestError:
+            pass
+
+        if attempt >= max_attempts:
+            raise
+
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 8.0)
 
 
 def _write_stdout_artifact(run_id: str, step_index: int, content: str) -> str:
@@ -151,130 +172,167 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
     steps: List[Dict[str, Any]] = runbook.get("steps", [])
     techniques = _load_techniques()
 
-    for index, step in enumerate(steps, start=1):
-        technique_id = step.get("technique_id")
-        params = step.get("params", {}) or {}
+    current_index: Optional[int] = None
+    current_technique: Optional[str] = None
 
-        spec = techniques.get(technique_id)
-        severity = spec.severity if spec else None
-        adapter_type, adapter_identifier = _resolve_adapter(spec)
-        resource = params.get("bucket") if adapter_type == "stratus" else None
-        artifacts: List[Dict[str, Any]] = []
+    final_status = "ok"
 
-        step_payload = {
-            "index": index,
-            "technique_id": technique_id,
-            "params": params,
-        }
+    try:
+        for index, step in enumerate(steps, start=1):
+            current_index = index
+            technique_id = step.get("technique_id")
+            current_technique = technique_id
+            params = step.get("params", {}) or {}
 
-        try:
-            _post_event(
-                run_id,
-                "run.step",
-                step_payload,
-                phase="queued",
-                severity=severity,
-                resource=resource,
-                summary="Step queued",
-                details=None,
-            )
+            spec = techniques.get(technique_id)
+            severity = spec.severity if spec else None
+            adapter_type, adapter_identifier = _resolve_adapter(spec)
+            resource = params.get("bucket") if adapter_type == "stratus" else None
+            artifacts: List[Dict[str, Any]] = []
 
-            _post_event(
-                run_id,
-                "run.step",
-                step_payload,
-                phase="running",
-                severity=severity,
-                resource=resource,
-                summary="Step running",
-                details=None,
-            )
+            step_payload = {
+                "index": index,
+                "technique_id": technique_id,
+                "params": params,
+            }
 
-            with _step_timeout(STEP_TIMEOUT_SECONDS):
-                result = _run_step(adapter_type, adapter_identifier, params)
-
-            stdout_content = result.get("stdout")
-            if stdout_content:
-                artifact_uri = _write_stdout_artifact(run_id, index, stdout_content)
-                artifacts.append({"type": "stdout", "uri": artifact_uri})
-
-            cloudtrail_uri = _cloudtrail_artifact_uri()
-            if cloudtrail_uri and adapter_type == "stratus":
-                artifacts.append({"type": "cloudtrail", "uri": cloudtrail_uri})
-
-            if result.get("ok", False):
-                effective_severity, summary, details, result_artifacts = _normalize_result(
-                    technique_id,
-                    result,
-                    severity,
+            try:
+                _post_event(
+                    run_id,
+                    "run.step",
+                    step_payload,
+                    phase="queued",
+                    severity=severity,
+                    resource=resource,
+                    summary="Step queued",
+                    details=None,
                 )
-                if result_artifacts:
-                    artifacts.extend(result_artifacts)
 
                 _post_event(
                     run_id,
                     "run.step",
-                    {**step_payload, "result": result},
-                    phase="ok",
-                    severity=effective_severity,
+                    step_payload,
+                    phase="running",
+                    severity=severity,
+                    resource=resource,
+                    summary="Step running",
+                    details=None,
+                )
+
+                with _step_timeout(STEP_TIMEOUT_SECONDS):
+                    result = _run_step(adapter_type, adapter_identifier, params)
+
+                stdout_content = result.get("stdout")
+                if stdout_content:
+                    artifact_uri = _write_stdout_artifact(run_id, index, stdout_content)
+                    artifacts.append({"type": "stdout", "uri": artifact_uri})
+
+                cloudtrail_uri = _cloudtrail_artifact_uri()
+                if cloudtrail_uri and adapter_type == "stratus":
+                    artifacts.append({"type": "cloudtrail", "uri": cloudtrail_uri})
+
+                if result.get("ok", False):
+                    effective_severity, summary, details, result_artifacts = _normalize_result(
+                        technique_id,
+                        result,
+                        severity,
+                    )
+                    if result_artifacts:
+                        artifacts.extend(result_artifacts)
+
+                    _post_event(
+                        run_id,
+                        "run.step",
+                        {**step_payload, "result": result},
+                        phase="ok",
+                        severity=effective_severity,
+                        resource=resource,
+                        artifacts=artifacts or None,
+                        summary=summary,
+                        details=details,
+                    )
+                else:
+                    raise StepExecutionError(technique_id, result)
+
+            except StepTimeoutError as exc:
+                logger.error("Step %s timed out: %s", technique_id, exc)
+                final_status = "error"
+                _post_event(
+                    run_id,
+                    "run.step",
+                    {**step_payload, "error": str(exc)},
+                    phase="error",
+                    severity=severity,
                     resource=resource,
                     artifacts=artifacts or None,
-                    summary=summary,
-                    details=details,
+                    summary=f"Step timed out: {exc}",
+                    details=None,
                 )
-            else:
-                raise StepExecutionError(technique_id, result)
-
-        except StepTimeoutError as exc:
-            logger.error("Step %s timed out: %s", technique_id, exc)
+                raise
+            except httpx.HTTPError as exc:
+                logger.error("Failed to emit event for run %s step %s: %s", run_id, technique_id, exc)
+                final_status = "error"
+                raise
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.exception("Error executing step %s", technique_id)
+                stderr_message = getattr(exc, "stderr", None)
+                error_payload = {**step_payload, "error": str(exc)}
+                if stderr_message:
+                    error_payload["stderr"] = stderr_message
+                result_payload = getattr(exc, "result", None)
+                if result_payload:
+                    error_payload["result"] = result_payload
+                _post_event(
+                    run_id,
+                    "run.step",
+                    error_payload,
+                    phase="error",
+                    severity=severity,
+                    resource=resource,
+                    artifacts=artifacts or None,
+                    summary=f"Step error: {exc}",
+                    details=None,
+                )
+                final_status = "error"
+                raise
+    except Exception as execution_error:
+        logger.error("Run %s failed: %s", run_id, execution_error)
+        failure_payload: Dict[str, Any] = {
+            "status": "error",
+            "step_count": len(steps),
+            "error": str(execution_error),
+        }
+        if current_index is not None:
+            failure_payload["failed_step"] = {
+                "index": current_index,
+                "technique_id": current_technique,
+            }
+        try:
             _post_event(
                 run_id,
-                "run.step",
-                {**step_payload, "error": str(exc)},
+                "run.completed",
+                failure_payload,
                 phase="error",
-                severity=severity,
-                resource=resource,
-                artifacts=artifacts or None,
-                summary=f"Step timed out: {exc}",
+                severity="high",
+                summary=f"Run failed: {execution_error}",
                 details=None,
             )
-            raise
-        except httpx.HTTPError as exc:
-            logger.error("Failed to emit event for run %s step %s: %s", run_id, technique_id, exc)
-            raise
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception("Error executing step %s", technique_id)
-            stderr_message = getattr(exc, "stderr", None)
-            error_payload = {**step_payload, "error": str(exc)}
-            if stderr_message:
-                error_payload["stderr"] = stderr_message
-            result_payload = getattr(exc, "result", None)
-            if result_payload:
-                error_payload["result"] = result_payload
-            _post_event(
-                run_id,
-                "run.step",
-                error_payload,
-                phase="error",
-                severity=severity,
-                resource=resource,
-                artifacts=artifacts or None,
-                summary=f"Step error: {exc}",
-                details=None,
-            )
-            raise
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to emit run completion error event for %s", run_id)
+        final_status = "error"
+        raise
+    else:
+        _post_event(
+            run_id,
+            "run.completed",
+            {"status": "ok", "step_count": len(steps)},
+            phase="ok",
+            severity="low",
+            summary="Run completed successfully",
+            details=None,
+        )
 
-    _post_event(
-        run_id,
-        "run.completed",
-        {"status": "ok", "step_count": len(steps)},
-        phase="ok",
-        severity="low",
-        summary="Run completed successfully",
-        details=None,
-    )
-
-    return "queued"
+    return final_status
 
 
 def _normalize_result(
@@ -288,7 +346,9 @@ def _normalize_result(
     details = result.get("details") if isinstance(result.get("details"), dict) else None
     artifacts: List[Dict[str, Any]] = []
 
-    effective_severity = _max_severity(findings, default_severity)
+    result_severity = result.get("severity")
+    baseline_severity = result_severity or default_severity or "informational"
+    effective_severity = _max_severity(findings, baseline_severity)
 
     if findings:
         summary = summary or _summarize_findings(technique_id, findings)
@@ -310,7 +370,7 @@ def _coerce_finding(finding: Any) -> Dict[str, Any]:
 
 
 def _max_severity(findings: List[Dict[str, Any]], default: Optional[str]) -> Optional[str]:
-    highest = (default or "low").lower()
+    highest = (default or "informational").lower()
     for finding in findings:
         sev = (finding.get("severity") or highest).lower()
         if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(highest, 0):

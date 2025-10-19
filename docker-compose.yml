@@ -18,6 +18,8 @@ services:
       - .env
     environment:
       AWS_PROFILE: ${AWS_PROFILE}
+      AWS_REGION: ${REGION}
+      AWS_DEFAULT_REGION: ${REGION}
     ports:
       - "8000:8000"
     depends_on:
@@ -40,6 +42,8 @@ services:
     environment:
       AWS_PROFILE: ${AWS_PROFILE}
       API_BASE_URL: http://api:8000
+      AWS_REGION: ${REGION}
+      AWS_DEFAULT_REGION: ${REGION}
     depends_on:
       - redis
       - api

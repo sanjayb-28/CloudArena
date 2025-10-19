@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from starlette.routing import NoMatchFound
 
 from app.auth import (
     clear_session,
@@ -113,8 +114,25 @@ async def auth_callback(
 
 
 @router.get("/logout")
-async def logout() -> RedirectResponse:
-    redirect = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+async def logout(request: Request) -> RedirectResponse:
+    settings = get_settings()
+
+    try:
+        default_return = str(request.url_for("ui_dashboard"))
+    except NoMatchFound:
+        default_return = "/"
+
+    return_to = settings.auth0_logout_redirect_url or default_return or "/"
+
+    if settings.auth0_domain and settings.auth0_client_id:
+        params = {"client_id": settings.auth0_client_id}
+        if return_to:
+            params["returnTo"] = return_to
+        logout_url = f"https://{settings.auth0_domain}/v2/logout?{urlencode(params)}"
+        redirect = RedirectResponse(url=logout_url, status_code=status.HTTP_303_SEE_OTHER)
+    else:
+        redirect = RedirectResponse(url=return_to, status_code=status.HTTP_303_SEE_OTHER)
+
     clear_session(redirect)
     clear_state(redirect)
     return redirect

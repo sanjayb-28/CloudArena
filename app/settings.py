@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     auth0_client_id: Optional[str] = None
     auth0_client_secret: Optional[str] = None
     auth0_callback_url: Optional[str] = Field(default=None, env="AUTH0_CALLBACK_URL")
+    auth0_logout_redirect_url: Optional[str] = Field(default=None, env="AUTH0_LOGOUT_REDIRECT_URL")
     gemini_api_key: Optional[str] = None
     aws_profile: str = "arena"
     use_gradient: bool = False

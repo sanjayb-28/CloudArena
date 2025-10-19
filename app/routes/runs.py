@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import boto3
@@ -13,7 +13,12 @@ from app.models import RunStep, Runbook
 from app.planner import get_technique_spec, plan
 from app.routes.facts import gather_facts
 from app.settings import get_settings
-from app.store import insert_event, insert_run
+from app.store import (
+    get_run as store_get_run,
+    insert_event,
+    insert_run,
+    list_runs as store_list_runs,
+)
 from app.workers.tasks import execute_runbook
 
 settings = get_settings()
@@ -24,6 +29,45 @@ router = APIRouter()
 class RunRequest(BaseModel):
     goals: Optional[str] = None
     facts: Optional[Dict[str, Any]] = None
+
+
+class RunRecord(BaseModel):
+    run_id: str
+    goals: Optional[str]
+    status: Optional[str]
+    created_at: str
+    completed_at: Optional[str]
+    runbook: Dict[str, Any]
+    facts: Optional[Dict[str, Any]]
+
+
+class RunsResponse(BaseModel):
+    runs: List[RunRecord]
+
+
+def _serialize_run_record(record: Dict[str, Any]) -> RunRecord:
+    runbook_data = record.get("runbook") if isinstance(record.get("runbook"), dict) else {}
+    if isinstance(runbook_data, dict):
+        runbook_data.setdefault("run_id", record.get("run_id"))
+
+    facts_value = record.get("facts") if isinstance(record.get("facts"), dict) else None
+    if facts_value is None:
+        facts_json = record.get("facts_json")
+        if isinstance(facts_json, str):
+            try:
+                facts_value = json.loads(facts_json)
+            except json.JSONDecodeError:
+                facts_value = None
+
+    return RunRecord(
+        run_id=record.get("run_id"),
+        goals=record.get("goals"),
+        status=record.get("status"),
+        created_at=record.get("created_at"),
+        completed_at=record.get("completed_at"),
+        runbook=runbook_data,
+        facts=facts_value,
+    )
 
 
 @router.post("/runs")
@@ -100,7 +144,13 @@ async def create_run(
     steps = [RunStep(technique_id=step.technique_id, params=step.params, notes=step.notes) for step in runbook_spec.steps]
     runbook = Runbook(run_id=run_id, goals=runbook_spec.goals, steps=steps)
 
-    insert_run(run_id, goals, json.dumps(runbook.model_dump()))
+    insert_run(
+        run_id,
+        goals,
+        json.dumps(runbook.model_dump()),
+        json.dumps(facts),
+        "queued",
+    )
 
     expires_at = datetime.utcnow() + timedelta(minutes=15)
     execute_runbook.apply_async(args=(run_id, runbook.model_dump()), expires=expires_at)
@@ -127,4 +177,25 @@ async def create_run(
         "run_id": run_id,
         "runbook": runbook.model_dump(),
         "facts": facts,
+        "status": "queued",
     }
+
+
+@router.get("/runs", response_model=RunsResponse)
+async def list_runs_endpoint(
+    limit: int = 20,
+    _: Dict[str, Any] = Depends(require_auth),
+) -> RunsResponse:
+    records = store_list_runs(limit=limit)
+    return RunsResponse(runs=[_serialize_run_record(record) for record in records])
+
+
+@router.get("/runs/{run_id}", response_model=RunRecord)
+async def get_run_endpoint(
+    run_id: str,
+    _: Dict[str, Any] = Depends(require_auth),
+) -> RunRecord:
+    record = store_get_run(run_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+    return _serialize_run_record(record)

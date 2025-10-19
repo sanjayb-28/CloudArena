@@ -28,8 +28,10 @@ class Event(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     phase: Optional[Literal["queued", "running", "ok", "error"]] = None
-    severity: Optional[Literal["low", "medium", "high"]] = None
+    severity: Optional[Literal["informational", "low", "medium", "high"]] = None
     region: Optional[str] = None
     principal_arn: Optional[str] = None
     resource: Optional[str] = None
     artifacts: List[EventArtifact] = Field(default_factory=list)
+    summary: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
