@@ -75,7 +75,7 @@ data "aws_iam_policy_document" "cloudtrail_trail" {
       identifiers = ["cloudtrail.amazonaws.com"]
     }
 
-    actions   = ["s3:PutObject"]
+    actions = ["s3:PutObject"]
     resources = [
       "${aws_s3_bucket.cloudtrail_trail.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
     ]
@@ -153,7 +153,7 @@ resource "aws_security_group" "open_admin" {
   }
 
   tags = {
-    Purpose = "CloudArena"
+    Purpose  = "CloudArena"
     Exposure = "PublicIngress"
   }
 }
@@ -163,7 +163,7 @@ resource "aws_s3_bucket" "public_objects" {
   force_destroy = true
 
   tags = {
-    Purpose = "CloudArena"
+    Purpose  = "CloudArena"
     Exposure = "PublicAccess"
   }
 }
@@ -234,7 +234,7 @@ resource "aws_kms_key" "no_rotation" {
   deletion_window_in_days = 7
 
   tags = {
-    Purpose = "CloudArena"
+    Purpose  = "CloudArena"
     Exposure = "RotationDisabled"
   }
 }
@@ -255,7 +255,7 @@ resource "aws_ecr_repository" "workshop" {
 
   encryption_configuration {
     encryption_type = "KMS"
-    kms_key = aws_kms_key.no_rotation.arn
+    kms_key         = aws_kms_key.no_rotation.arn
   }
 
   tags = {
@@ -304,7 +304,7 @@ resource "aws_iam_user" "stale" {
   force_destroy = true
 
   tags = {
-    Purpose = "CloudArena"
+    Purpose  = "CloudArena"
     Exposure = "StaleAccessKey"
   }
 }
