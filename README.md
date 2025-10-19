@@ -38,7 +38,7 @@ CloudArena is a modular platform for orchestrating agentic security exercises in
 
 1. Install prerequisites (Python 3.11+, Docker) and authenticate the CLI with the AWS sandbox account defined above.
 2. Build and launch the stack with `docker compose up --build`. The worker image bootstraps the Stratus CLI during build, so the first build requires outbound internet access.
-3. Browse to `http://localhost:8000/ui`, authenticate via Auth0, create a run, and observe the event stream and generated report.
+3. Browse to `http://localhost:8000/console`, authenticate via Auth0, create a run, and observe the event stream and generated report.
 4. Consult `docs/PROJECT_OVERVIEW.md` for deeper architecture details, operational guidance, and the current roadmap.
 
 Auth0 setup cheat sheet: create a Regular Web Application, add `http://localhost:8000/auth/callback` to its allowed callbacks, configure a logout URL (e.g., `http://localhost:8000/`), create/verify an API with Identifier `https://cloudarena.api` (or your chosen audience), and copy the app’s client ID/secret into `.env`. No machine-to-machine client is required—the worker authenticates with the static `AUTH_TOKEN`.
@@ -47,9 +47,9 @@ Auth0 setup cheat sheet: create a Regular Web Application, add `http://localhost
 
 - Clone the repo and copy `.env.example` to `.env`, filling in Auth0, `AUTH_TOKEN`, and AWS profile values.
 - Run `docker compose up --build` with AWS sandbox credentials available.
-- Visit `http://localhost:8000/ui`, authenticate, and start a run with a descriptive goal (e.g., “assess public s3 exposure”).
+- Visit `http://localhost:8000/console`, authenticate, and start a run with a descriptive goal (e.g., “assess public s3 exposure”).
 - Observe the UI timeline as SDK and Stratus results stream in, then generate the Markdown report for your team.
-- When finished, use the **Clear Runs** button (or `POST /ui/runs/clear`) and run `terraform destroy` in `aws/terraform/` if you provisioned real resources.
+- When finished, use the **Clear Runs** button (or `POST /console/runs/clear`) and run `terraform destroy` in `aws/terraform/` if you provisioned real resources.
 
 ## Contributing
 

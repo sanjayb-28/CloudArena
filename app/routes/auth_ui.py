@@ -1,5 +1,5 @@
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,6 +15,7 @@ from app.auth import (
     validate_state,
 )
 from app.settings import get_settings
+from app.routes.ui import PORTAL_ROOT
 
 router = APIRouter()
 
@@ -26,10 +27,36 @@ def _build_redirect_uri(request: Request) -> str:
     return str(request.url_for("auth_callback"))
 
 
+def _resolve_logout_return_to(request: Request) -> str:
+    settings = get_settings()
+    base_url = str(request.base_url)
+    custom = settings.auth0_logout_redirect_url
+
+    if custom:
+        if custom.startswith(("http://", "https://")):
+            return custom
+        return urljoin(base_url, custom.lstrip("/"))
+
+    try:
+        login_url = str(request.url_for("login"))
+    except NoMatchFound:
+        login_url = urljoin(base_url, "login")
+
+    parsed_base = urlparse(base_url)
+    parsed_login = urlparse(login_url)
+
+    if parsed_login.scheme == parsed_base.scheme and parsed_login.netloc == parsed_base.netloc:
+        path = parsed_login.path or "/"
+        base_root = base_url.rstrip("/") + "/"
+        return f"{base_root}?next={quote(path)}"
+
+    return login_url
+
+
 @router.get("/login")
 async def login(request: Request, user=Depends(get_current_user_optional)) -> RedirectResponse:
     if user:
-        return RedirectResponse(url="/ui", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url=PORTAL_ROOT, status_code=status.HTTP_303_SEE_OTHER)
 
     settings = get_settings()
     if not settings.auth0_domain or not settings.auth0_client_id:
@@ -107,7 +134,7 @@ async def auth_callback(
     if not user_claims["sub"]:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Auth0 response missing subject.")
 
-    redirect = RedirectResponse(url="/ui", status_code=status.HTTP_303_SEE_OTHER)
+    redirect = RedirectResponse(url=PORTAL_ROOT, status_code=status.HTTP_303_SEE_OTHER)
     clear_state(redirect)
     establish_session(redirect, user_claims)
     return redirect
@@ -116,13 +143,7 @@ async def auth_callback(
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
     settings = get_settings()
-
-    try:
-        default_return = str(request.url_for("ui_dashboard"))
-    except NoMatchFound:
-        default_return = "/"
-
-    return_to = settings.auth0_logout_redirect_url or default_return or "/"
+    return_to = _resolve_logout_return_to(request)
 
     if settings.auth0_domain and settings.auth0_client_id:
         params = {"client_id": settings.auth0_client_id}

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
+from fastapi.responses import RedirectResponse
 
 from .routes.auth_test import router as auth_test_router
 from .routes.auth_ui import router as auth_ui_router
@@ -37,6 +38,14 @@ app.include_router(ui_router)
 
 
 @app.get("/")
-async def root(request: Request) -> dict[str, str]:
+async def root(request: Request):
+    next_target = request.query_params.get("next")
+    if next_target and next_target.startswith("/"):
+        return RedirectResponse(url=next_target, status_code=status.HTTP_303_SEE_OTHER)
+
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept.lower():
+        return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
     settings = getattr(request.app.state, "settings", get_settings())
     return {"message": f"CloudArena API running in {settings.env} mode"}

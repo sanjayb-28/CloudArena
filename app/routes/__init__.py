@@ -1,1 +1,1 @@
-# API route modules for CloudArena
+"""API route modules for CloudArena."""

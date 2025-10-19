@@ -1,1 +1,1 @@
-# Worker package for Celery tasks
+"""Worker package for Celery tasks."""

@@ -1,1 +1,1 @@
-# CloudArena application package
+"""CloudArena application package."""

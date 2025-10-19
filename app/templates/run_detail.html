@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-  <a href="/ui">← Back to dashboard</a>
+  <a href="{{ portal_root }}">← Back to dashboard</a>
   <div
-    id="run-header"
-    hx-get="/ui/runs/{{ run.run_id }}/header"
+  id="run-header"
+  hx-get="{{ portal_root }}/runs/{{ run.run_id }}/header"
     hx-trigger="load, every 4s"
     hx-swap="innerHTML"
   >
@@ -41,7 +41,7 @@
 
   <section class="card">
     <h3>Generate Report</h3>
-    <form hx-post="/ui/runs/{{ run.run_id }}/reports" hx-target="#report-output" hx-swap="innerHTML">
+    <form hx-post="{{ portal_root }}/runs/{{ run.run_id }}/reports" hx-target="#report-output" hx-swap="innerHTML">
       <button type="submit">Generate Markdown Report</button>
     </form>
     <div id="report-output" style="margin-top: 1rem;"></div>

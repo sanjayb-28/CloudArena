@@ -12,6 +12,8 @@ from app.routes import runs as run_routes
 from app.store import delete_all_runs, get_run, list_events, list_runs
 from app.telemetry.summary import aggregate_step_events
 
+PORTAL_ROOT = "/console"
+
 router = APIRouter()
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -47,7 +49,7 @@ def _prepare_run_record(record: Dict[str, Any]) -> Dict[str, Any]:
     return prepared
 
 
-@router.get("/ui", response_class=HTMLResponse)
+@router.get(PORTAL_ROOT, response_class=HTMLResponse)
 async def ui_dashboard(request: Request, user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)) -> HTMLResponse:
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -60,11 +62,12 @@ async def ui_dashboard(request: Request, user: Optional[Dict[str, Any]] = Depend
             "error": None,
             "user": user,
             "cleared": False,
+            "portal_root": PORTAL_ROOT,
         },
     )
 
 
-@router.post("/ui/runs", response_class=HTMLResponse)
+@router.post(f"{PORTAL_ROOT}/runs", response_class=HTMLResponse)
 async def ui_create_run(
     request: Request,
     goals: Optional[str] = Form(None),
@@ -90,10 +93,10 @@ async def ui_create_run(
         )
 
     run_id = result["run_id"]
-    return RedirectResponse(f"/ui/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(f"{PORTAL_ROOT}/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/ui/runs/clear", response_class=HTMLResponse)
+@router.post(f"{PORTAL_ROOT}/runs/clear", response_class=HTMLResponse)
 async def ui_clear_runs(
     request: Request,
     user: Optional[Dict[str, Any]] = Depends(get_current_user_optional),
@@ -111,11 +114,12 @@ async def ui_clear_runs(
             "error": None,
             "user": user,
             "cleared": True,
+            "portal_root": PORTAL_ROOT,
         },
     )
 
 
-@router.get("/ui/runs/{run_id}", response_class=HTMLResponse)
+@router.get(f"{PORTAL_ROOT}/runs/{{run_id}}", response_class=HTMLResponse)
 async def ui_run_detail(
     request: Request,
     run_id: str,
@@ -141,11 +145,12 @@ async def ui_run_detail(
             "events": events,
             "step_summaries": step_summaries,
             "user": user,
+            "portal_root": PORTAL_ROOT,
         },
     )
 
 
-@router.get("/ui/runs/{run_id}/header", response_class=HTMLResponse)
+@router.get(f"{PORTAL_ROOT}/runs/{{run_id}}/header", response_class=HTMLResponse)
 async def ui_run_header(
     request: Request,
     run_id: str,
@@ -168,11 +173,12 @@ async def ui_run_header(
             "run": prepared,
             "runbook": runbook,
             "user": user,
+            "portal_root": PORTAL_ROOT,
         },
     )
 
 
-@router.post("/ui/runs/{run_id}/reports", response_class=HTMLResponse)
+@router.post(f"{PORTAL_ROOT}/runs/{{run_id}}/reports", response_class=HTMLResponse)
 async def ui_run_report(
     run_id: str,
     user: Optional[Dict[str, Any]] = Depends(get_current_user_optional),
@@ -193,10 +199,10 @@ async def ui_run_report(
     markdown = render_report(facts, events)
     html = f"<pre class='report-output'>{markdown}</pre>"
     try:
-        import markdown2  # type: ignore[import]
+        import markdown2
 
         html_body = markdown2.markdown(markdown, extras=["tables", "fenced-code-blocks"])
         html = f"<div class='report-output-html'>{html_body}</div>"
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         pass
     return HTMLResponse(html)
