@@ -224,8 +224,12 @@ resource "aws_s3_object" "public_sample" {
   bucket       = aws_s3_bucket.public_objects.id
   key          = "public/sample.txt"
   content      = "CloudArena sample object exposed publicly."
-  acl          = "public-read"
   content_type = "text/plain"
+
+  depends_on = [
+    aws_s3_bucket_acl.public_objects,
+    aws_s3_bucket_policy.public_objects,
+  ]
 }
 
 resource "aws_kms_key" "no_rotation" {

@@ -10,7 +10,7 @@ from app.auth import get_current_user_optional
 from app.reporter import render_report
 from app.routes import runs as run_routes
 from app.routes.facts import gather_facts
-from app.store import get_run, list_events, list_runs
+from app.store import delete_all_runs, get_run, list_events, list_runs
 from app.telemetry.summary import aggregate_step_events
 
 router = APIRouter()
@@ -60,6 +60,7 @@ async def ui_dashboard(request: Request, user: Optional[Dict[str, Any]] = Depend
             "runs": recent_runs,
             "error": None,
             "user": user,
+            "cleared": False,
         },
     )
 
@@ -84,12 +85,35 @@ async def ui_create_run(
                 "runs": recent_runs,
                 "error": exc.detail,
                 "user": user,
+                "cleared": False,
             },
             status_code=exc.status_code,
         )
 
     run_id = result["run_id"]
     return RedirectResponse(f"/ui/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/ui/runs/clear", response_class=HTMLResponse)
+async def ui_clear_runs(
+    request: Request,
+    user: Optional[Dict[str, Any]] = Depends(get_current_user_optional),
+) -> HTMLResponse:
+    if not user:
+        return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)
+
+    delete_all_runs()
+
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "runs": [],
+            "error": None,
+            "user": user,
+            "cleared": True,
+        },
+    )
 
 
 @router.get("/ui/runs/{run_id}", response_class=HTMLResponse)
@@ -161,11 +185,12 @@ async def ui_run_report(
         return HTMLResponse("<p>No events yet for this run.</p>")
     facts = await gather_facts()
     markdown = render_report(facts, events)
+    html = f"<pre class='report-output'>{markdown}</pre>"
     try:
-        import markdown2
+        import markdown2  # type: ignore[import]
 
         html_body = markdown2.markdown(markdown, extras=["tables", "fenced-code-blocks"])
         html = f"<div class='report-output-html'>{html_body}</div>"
     except Exception:  # pylint: disable=broad-except
-        html = f"<pre class='report-output'>{markdown}</pre>"
+        pass
     return HTMLResponse(html)

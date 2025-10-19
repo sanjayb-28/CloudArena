@@ -160,6 +160,15 @@ def list_runs(limit: int = 20) -> List[Dict[str, Any]]:
         return [_hydrate_run(dict(row)) for row in cursor.fetchall()]
 
 
+def delete_all_runs() -> None:
+    """Remove all run and event records from the local store."""
+
+    with _connect() as conn:
+        conn.execute("DELETE FROM events;")
+        conn.execute("DELETE FROM runs;")
+        conn.commit()
+
+
 def insert_event(
     run_id: str,
     ts: str,

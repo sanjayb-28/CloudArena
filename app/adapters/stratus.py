@@ -104,8 +104,39 @@ def run_stratus(
         result["stderr"] = completed.stderr
 
     if result["ok"]:
-        result.setdefault("summary", f"Executed Stratus technique {resolved}")
+        details: Dict[str, Any] = {
+            "technique": resolved,
+        }
+        if bucket:
+            details["bucket"] = bucket
+        if completed.stdout:
+            stdout_text = completed.stdout.strip()
+            details["stdout_excerpt"] = stdout_text[:500]
+        else:
+            stdout_text = ""
+
+        summary = f"Executed Stratus technique {resolved}"
+        if bucket:
+            summary += f" against bucket {bucket}"
+
+        result.setdefault("summary", summary)
         result.setdefault("severity", "medium")
+        result.setdefault("details", details)
+
+        issue = "Stratus simulation completed successfully"
+        if bucket:
+            issue = f"Stratus confirmed public-read access on bucket {bucket}"
+
+        evidence = stdout_text or "Stratus CLI returned no output"
+
+        details.setdefault("findings", []).append(
+            {
+                "severity": result["severity"],
+                "resource": bucket or "n/a",
+                "issue": issue,
+                "evidence": evidence,
+            }
+        )
     else:
         result.setdefault("error", "Stratus command failed")
         result.setdefault("summary", "Stratus technique execution failed")

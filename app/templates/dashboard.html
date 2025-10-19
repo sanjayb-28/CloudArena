@@ -14,7 +14,17 @@
   </section>
 
   <section class="card">
-    <h2>Recent Runs</h2>
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+      <h2 style="margin: 0;">Recent Runs</h2>
+      {% if runs %}
+        <form action="/ui/runs/clear" method="post" onsubmit="return confirm('Clear all stored runs?');">
+          <button type="submit" style="background: #1f2937; color: #f8fafc; border: 1px solid #475569; padding: 0.4rem 0.75rem; border-radius: 0.375rem; cursor: pointer;">Clear Runs</button>
+        </form>
+      {% endif %}
+    </div>
+    {% if cleared %}
+      <div class="notice" style="margin-top: 0.75rem; color: #38bdf8;">Run history cleared.</div>
+    {% endif %}
     {% if runs %}
       <table>
         <thead>

@@ -31,7 +31,7 @@ def render_report(facts: dict, events: Iterable[Any]) -> str:
 
 
 def _render_static_markdown(facts: dict, events: Sequence[dict]) -> str:
-    summary_md, _, findings_table, remediation_md, _, step_records = _prepare_sections(facts, events)
+    summary_md, _, findings_block, remediation_md, _, step_records = _prepare_sections(facts, events)
 
     settings = get_settings()
     account = facts.get("account", "unknown")
@@ -46,10 +46,7 @@ def _render_static_markdown(facts: dict, events: Sequence[dict]) -> str:
         "",
         summary_md,
         "",
-        findings_table,
-        "",
-        "## S3 Inventory",
-        _summarize_s3(facts),
+        findings_block,
         "",
         remediation_md,
         "",
@@ -61,7 +58,7 @@ def _render_static_markdown(facts: dict, events: Sequence[dict]) -> str:
 
 
 def _render_with_gemini(facts: dict, events: Sequence[dict]) -> str:
-    summary_md, summary_plain, findings_table, remediation_md, remediation_plain, step_records = _prepare_sections(
+    summary_md, summary_plain, findings_block, remediation_md, remediation_plain, step_records = _prepare_sections(
         facts, events
     )
 
@@ -84,7 +81,7 @@ def _render_with_gemini(facts: dict, events: Sequence[dict]) -> str:
         "# CloudArena Run Report",
         generated,
         "",
-        findings_table,
+    findings_block,
         "",
         remediation_md,
         "",
@@ -100,9 +97,9 @@ def _prepare_sections(
 ) -> Tuple[str, str, str, str, str, List[Dict[str, Any]]]:
     steps = _aggregate_steps(events)
     summary_md, summary_plain = _build_summary_section(steps)
-    findings_table = _build_findings_table(steps)
+    findings_block = _build_findings_block(steps)
     remediation_md, remediation_plain = _build_remediation_section(facts, steps)
-    return summary_md, summary_plain, findings_table, remediation_md, remediation_plain, steps
+    return summary_md, summary_plain, findings_block, remediation_md, remediation_plain, steps
 
 
 def _aggregate_steps(events: Sequence[dict]) -> List[Dict[str, Any]]:
@@ -137,17 +134,23 @@ def _aggregate_steps(events: Sequence[dict]) -> List[Dict[str, Any]]:
         if summary:
             record["summary"] = summary
         details = event.get("details") or payload.get("details")
+        collected_findings: Optional[List[Dict[str, Any]]] = None
         if details:
             record["details"] = details
-            findings = details.get("findings")
+            findings = details.get("findings") if isinstance(details, dict) else None
             if isinstance(findings, list):
-                record["findings"] = findings
-        else:
-            result = payload.get("result")
-            if isinstance(result, dict):
-                findings = result.get("findings")
-                if isinstance(findings, list):
-                    record["findings"] = findings
+                collected_findings = findings
+        result = payload.get("result")
+        if collected_findings is None and isinstance(result, dict):
+            findings = result.get("findings")
+            if isinstance(findings, list):
+                collected_findings = findings
+        if collected_findings is None:
+            findings = event.get("findings")
+            if isinstance(findings, list):
+                collected_findings = findings
+        if collected_findings is not None:
+            record["findings"] = collected_findings
         artifacts = event.get("artifacts") or payload.get("artifacts") or []
         if artifacts:
             record.setdefault("artifacts", []).extend(artifacts)
@@ -197,7 +200,7 @@ def _build_summary_section(steps: List[Dict[str, Any]]) -> Tuple[str, str]:
 
     if top_risk_entries:
         summary_lines.append("### Top Risks")
-        summary_lines.extend(top_risk_entries)
+        summary_lines.append("".join(entry + "\n" for entry in top_risk_entries).strip())
     else:
         summary_lines.append("### Top Risks\n- No significant risks detected.")
 
@@ -214,33 +217,61 @@ def _default_summary(record: Dict[str, Any]) -> str:
     return "No findings reported"
 
 
-def _build_findings_table(steps: List[Dict[str, Any]]) -> str:
+def _build_findings_block(steps: List[Dict[str, Any]]) -> str:
     if not steps:
         return "## Findings\nNo findings recorded."
 
-    header = "## Findings\n| Technique | Severity | Resource | Issue | Evidence |\n| --- | --- | --- | --- | --- |"
-    rows = [header]
+    lines: List[str] = ["## Findings"]
+    first_entry = True
+
     for record in steps:
         technique = record.get("technique_id") or "unknown"
         findings = record.get("findings") or []
+        header_severity = _format_severity(record.get("severity"))
+
+        if not first_entry:
+            lines.append("")
+        first_entry = False
+
         if findings:
+            lines.append(f"### {technique}")
             for finding in findings:
-                severity = (finding.get("severity") or record.get("severity") or "informational").title()
+                severity = _format_severity(finding.get("severity") or record.get("severity"))
                 resource = finding.get("resource") or record.get("resource") or "n/a"
-                issue = finding.get("issue") or record.get("summary") or "n/a"
+                issue = finding.get("issue") or record.get("summary") or _default_summary(record)
                 evidence = _format_evidence(finding.get("evidence"))
-                rows.append(f"| {technique} | {severity} | {resource} | {issue} | {evidence} |")
+                lines.extend(
+                    [
+                        f"- **Severity:** {severity}",
+                        f"    - **Resource:** `{resource}`",
+                        f"    - **Issue:** {issue}",
+                        f"    - **Evidence:** {evidence}",
+                    ]
+                )
         else:
-            severity = (record.get("severity") or "informational").title()
+            lines.append(f"### {technique}")
             resource = record.get("resource") or "n/a"
             issue = record.get("summary") or _default_summary(record)
             evidence = _format_evidence(record.get("details"))
-            rows.append(f"| {technique} | {severity} | {resource} | {issue} | {evidence} |")
+            lines.extend(
+                [
+                    f"- **Severity:** {header_severity}",
+                    f"    - **Resource:** `{resource}`",
+                    f"    - **Issue:** {issue}",
+                    f"    - **Evidence:** {evidence}",
+                ]
+            )
 
-    return "\n".join(rows)
+    return "\n".join(lines)
 
 
-def _format_evidence(evidence: Any, limit: int = 160) -> str:
+def _format_severity(value: Optional[str]) -> str:
+    if not value:
+        return "Informational"
+    return str(value).strip().title()
+
+
+def _format_evidence(evidence: Any, limit: int = 140) -> str:
     if not evidence:
         return "n/a"
     if isinstance(evidence, str):
@@ -252,7 +283,8 @@ def _format_evidence(evidence: Any, limit: int = 160) -> str:
             text = str(evidence)
     if len(text) > limit:
         text = text[: limit - 3] + "..."
-    return text.replace("\n", " ")
+    text = text.replace("\n", " ")
+    return text
 
 
 def _build_remediation_section(facts: dict, steps: List[Dict[str, Any]]) -> Tuple[str, str]:
@@ -323,19 +355,6 @@ def _summarize_events(events: Sequence[dict], steps: List[Dict[str, Any]]) -> st
     return "\n".join(lines)
 
 
-def _summarize_s3(facts: dict) -> str:
-    services = facts.get("services", {}) or {}
-    s3_buckets = services.get("s3", []) or []
-
-    if not s3_buckets:
-        return "No S3 inventory available."
-
-    lines = ["| Bucket | Public |", "| --- | --- |"]
-    for bucket in s3_buckets:
-        name = bucket.get("name", "unknown")
-        public = "yes" if bucket.get("public") else "no"
-        lines.append(f"| {name} | {public} |")
-    return "\n".join(lines)
 
 
 def _conditions_match(conditions: Dict[str, Any], facts: dict, context: Dict[str, Any]) -> bool:
