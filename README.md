@@ -1,6 +1,6 @@
 # CloudArena
 
-CloudArena is a modular platform for orchestrating agentic security exercises inside a fully managed AWS sandbox. The project combines Python-based planning and execution bots, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely.
+CloudArena is a modular platform for orchestrating agentic security exercises inside a fully managed AWS sandbox. The project combines Python-based planning and execution bots, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely and reproduce findings consistently.
 
 ## Project Goals
 
@@ -8,7 +8,9 @@ CloudArena is a modular platform for orchestrating agentic security exercises in
 - Drive scenario execution through adaptive Python agents that evaluate the environment and select safe simulation actions.
 - Map detections, attacker behaviors, and defensive gaps to MITRE ATT&CK techniques.
 - Produce human-friendly remediation reports backed by Gemini-generated narratives.
-- Integrate Auth0 for authentication, with optional Snowflake telemetry storage and DigitalOcean Gradient™ LLM fallback tracks.
+- Integrate Auth0 for authentication while keeping the stack lightweight (FastAPI, SQLite, Redis) so teams can demo without extra cloud services.
+- Provide optional Gemini-powered summaries but fall back to deterministic Markdown output when no LLM key is configured.
+- Capture and persist run artifacts locally so findings remain reviewable even after the hackathon environment is torn down.
 
 ## Repository Layout
 
@@ -40,6 +42,14 @@ CloudArena is a modular platform for orchestrating agentic security exercises in
 4. Consult `docs/PROJECT_OVERVIEW.md` for deeper architecture details, operational guidance, and the current roadmap.
 
 Auth0 setup cheat sheet: create a Regular Web Application, add `http://localhost:8000/auth/callback` to its allowed callbacks, configure a logout URL (e.g., `http://localhost:8000/`), create/verify an API with Identifier `https://cloudarena.api` (or your chosen audience), and copy the app’s client ID/secret into `.env`. No machine-to-machine client is required—the worker authenticates with the static `AUTH_TOKEN`.
+
+## Quick Demo Flow
+
+- Clone the repo and copy `.env.example` to `.env`, filling in Auth0, `AUTH_TOKEN`, and AWS profile values.
+- Run `docker compose up --build` with AWS sandbox credentials available.
+- Visit `http://localhost:8000/ui`, authenticate, and start a run with a descriptive goal (e.g., “assess public s3 exposure”).
+- Observe the UI timeline as SDK and Stratus results stream in, then generate the Markdown report for your team.
+- When finished, use the **Clear Runs** button (or `POST /ui/runs/clear`) and run `terraform destroy` in `aws/terraform/` if you provisioned real resources.
 
 ## Contributing
 
