@@ -183,8 +183,23 @@ async def ui_run_report(
     events = list_events(run_id)
     if not events:
         return HTMLResponse("<p>No events yet for this run.</p>")
-    facts = await gather_facts()
-    markdown = render_report(facts, events)
+
+    record = get_run(run_id)
+    persisted_facts = None
+    if record and isinstance(record.get("facts_json"), str):
+        try:
+            persisted_facts = json.loads(record["facts_json"])
+        except json.JSONDecodeError:
+            persisted_facts = None
+
+    facts = persisted_facts
+    if facts is None:
+        try:
+            facts = await gather_facts()
+        except Exception:  # pylint: disable=broad-except
+            facts = {}
+
+    markdown = render_report(facts or {}, events)
     html = f"<pre class='report-output'>{markdown}</pre>"
     try:
         import markdown2  # type: ignore[import]

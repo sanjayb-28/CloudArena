@@ -200,13 +200,13 @@ def _build_summary_section(steps: List[Dict[str, Any]]) -> Tuple[str, str]:
 
     if top_risk_entries:
         summary_lines.append("### Top Risks")
-        summary_lines.append("".join(entry + "\n" for entry in top_risk_entries).strip())
+        summary_lines.extend(entry for entry in top_risk_entries if entry.strip())
     else:
-        summary_lines.append("### Top Risks\n- No significant risks detected.")
+        summary_lines.append("### Top Risks")
+        summary_lines.append("- No significant risks detected.")
 
     summary_markdown = "\n".join(summary_lines)
     summary_plain = "\n".join(line.lstrip("- ") for line in summary_lines if line.startswith("- "))
-    summary_plain += "\n" + "\n".join(top_risk_entries)
     return summary_markdown, summary_plain.strip()
 
 
@@ -275,15 +275,42 @@ def _format_evidence(evidence: Any, limit: int = 140) -> str:
     if not evidence:
         return "n/a"
     if isinstance(evidence, str):
-        text = evidence
+        text = evidence.strip()
+    elif isinstance(evidence, dict):
+        items: List[str] = []
+        for index, (key, value) in enumerate(evidence.items()):
+            if index >= 5:
+                items.append("...")
+                break
+            items.append(f"{key}={_shorten_evidence_value(value)}")
+        text = ", ".join(items)
+    elif isinstance(evidence, (list, tuple, set)):
+        parts = [_shorten_evidence_value(item) for item in list(evidence)[:5]]
+        if len(parts) < len(evidence):
+            parts.append("...")
+        text = ", ".join(parts)
     else:
-        try:
-            text = json.dumps(evidence, default=str)
-        except TypeError:
-            text = str(evidence)
+        text = str(evidence)
+
+    text = text.strip()
     if len(text) > limit:
-        text = text[: limit - 3] + "..."
+        text = text[: limit - 3].rstrip() + "..."
     text = text.replace("\n", " ")
+    return text or "n/a"
+
+
+def _shorten_evidence_value(value: Any, max_len: int = 60) -> str:
+    if isinstance(value, (dict, list, tuple, set)):
+        try:
+            text = json.dumps(value, default=str)
+        except TypeError:
+            text = str(value)
+    else:
+        text = str(value)
+
+    text = text.replace("\n", " ")
+    if len(text) > max_len:
+        text = text[: max_len - 3].rstrip() + "..."
     return text
 
 

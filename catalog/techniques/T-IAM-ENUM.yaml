@@ -8,6 +8,10 @@ safety: read_only
 severity: low
 impl:
   adapter: sdk.iam.enum
+goal_tags:
+  - iam
+  - inventory
+  - enumeration
 mitre:
   - TA0003
 planner:

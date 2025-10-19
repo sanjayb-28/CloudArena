@@ -1,6 +1,7 @@
 import logging
+import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import yaml
 from pydantic import ValidationError
@@ -227,6 +228,8 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
     account_id = facts.get("account")
     region = facts.get("region")
 
+    goal_tokens = _tokenize_goals(goals)
+
     common_params = {
         key: value
         for key, value in {
@@ -237,6 +240,7 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
     }
 
     steps_with_priority: list[tuple[int, RunbookStep, str]] = []
+    fallback_candidates: list[tuple[int, RunbookStep, str]] = []
 
     for spec in sorted(techniques.values(), key=lambda item: item.id):
         planner_config = spec.planner or {}
@@ -255,15 +259,69 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
         if not generated_params:
             continue
 
+        matches_goal = _technique_matches_goal(spec, planner_config, goal_tokens)
         priority = int(planner_config.get("priority", 100))
         for overrides in generated_params:
             combined: Dict[str, Any] = {**base_params}
             if overrides:
                 combined.update({k: v for k, v in overrides.items() if v is not None})
             params = _merge_params(spec, combined)
-            steps_with_priority.append((priority, RunbookStep(technique_id=spec.id, params=params), spec.id))
+            step = RunbookStep(technique_id=spec.id, params=params)
+            candidate = (priority, step, spec.id)
+            fallback_candidates.append(candidate)
+            if not goal_tokens or matches_goal:
+                steps_with_priority.append(candidate)
 
-    for _, step, _ in sorted(steps_with_priority, key=lambda item: (item[0], item[2])):
+    selected = steps_with_priority
+    if goal_tokens and not selected:
+        logger.debug(
+            "No techniques matched goals %s; falling back to all auto-enabled techniques.",
+            sorted(goal_tokens),
+        )
+        selected = fallback_candidates
+
+    for _, step, _ in sorted(selected, key=lambda item: (item[0], item[2])):
         runbook.add_step(step)
 
     return runbook
+
+
+def _tokenize_goals(goals: Optional[str]) -> Set[str]:
+    if not goals:
+        return set()
+    return {token for token in re.findall(r"[a-z0-9]+", goals.lower()) if len(token) >= 2}
+
+
+def _technique_matches_goal(
+    spec: TechniqueSpec,
+    planner_config: Dict[str, Any],
+    goal_tokens: Set[str],
+) -> bool:
+    if not goal_tokens:
+        return True
+
+    if planner_config.get("always"):
+        return True
+
+    if planner_config.get("goal_optional"):
+        return True
+
+    tag_candidates: Set[str] = set()
+    tag_candidates.update(_tokenize_sequence(spec.goal_tags))
+    tag_candidates.update(_tokenize_sequence(planner_config.get("goal_tags")))
+
+    if not tag_candidates:
+        return False
+
+    return bool(tag_candidates & goal_tokens)
+
+
+def _tokenize_sequence(values: Optional[Sequence[Any]]) -> Set[str]:
+    tokens: Set[str] = set()
+    if not values:
+        return tokens
+    for value in values:
+        if value is None:
+            continue
+        tokens.update(token for token in re.findall(r"[a-z0-9]+", str(value).lower()) if token)
+    return tokens

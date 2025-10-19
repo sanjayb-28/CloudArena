@@ -8,6 +8,10 @@ safety: read_only
 severity: low
 impl:
   adapter: sdk.ecr.enum
+goal_tags:
+  - ecr
+  - registry
+  - inventory
 mitre:
   - TA0007
 planner:

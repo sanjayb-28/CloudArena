@@ -13,6 +13,11 @@ safety: simulation
 severity: medium
 impl:
   adapter: stratus.aws.s3.public_read_sim
+goal_tags:
+  - s3
+  - public
+  - exfiltration
+  - data
 mitre:
   - TA0010:T1530
 planner:

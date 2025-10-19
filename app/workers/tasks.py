@@ -19,6 +19,7 @@ from .celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_SECONDS = 120
+RUN_STATUS_DEGRADED = "degraded"
 
 
 class StepTimeoutError(Exception):
@@ -254,6 +255,31 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                 else:
                     raise StepExecutionError(technique_id, result)
 
+            except StepExecutionError as exc:
+                logger.warning("Technique %s failed but run will continue: %s", technique_id, exc)
+                if final_status == "ok":
+                    final_status = RUN_STATUS_DEGRADED
+
+                failure_result = getattr(exc, "result", {}) or {}
+                error_summary = failure_result.get("summary") or str(exc)
+                error_severity = failure_result.get("severity") or severity or "high"
+                error_details = failure_result.get("details") if isinstance(failure_result.get("details"), dict) else None
+                result_artifacts = failure_result.get("artifacts") if isinstance(failure_result.get("artifacts"), list) else None
+                if result_artifacts:
+                    artifacts.extend(result_artifacts)
+
+                _post_event(
+                    run_id,
+                    "run.step",
+                    {**step_payload, "result": failure_result},
+                    phase="error",
+                    severity=error_severity,
+                    resource=resource,
+                    artifacts=artifacts or None,
+                    summary=error_summary,
+                    details=error_details,
+                )
+                continue
             except StepTimeoutError as exc:
                 logger.error("Step %s timed out: %s", technique_id, exc)
                 final_status = "error"
@@ -322,13 +348,17 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
         final_status = "error"
         raise
     else:
+        completion_payload = {"status": final_status, "step_count": len(steps)}
+        completion_summary = "Run completed successfully" if final_status == "ok" else "Run completed with failures"
+        completion_severity = "low" if final_status == "ok" else "medium"
+
         _post_event(
             run_id,
             "run.completed",
-            {"status": "ok", "step_count": len(steps)},
+            completion_payload,
             phase="ok",
-            severity="low",
-            summary="Run completed successfully",
+            severity=completion_severity,
+            summary=completion_summary,
             details=None,
         )
 

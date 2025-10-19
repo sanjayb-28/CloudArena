@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,7 +29,15 @@ async def create_report(
     if payload.facts is not None:
         facts = payload.facts
     else:
-        facts = await gather_facts()
+        run_record = get_run(run_id)
+        facts = None
+        if run_record and isinstance(run_record.get("facts_json"), str):
+            try:
+                facts = json.loads(run_record["facts_json"])
+            except json.JSONDecodeError:
+                facts = None
+        if facts is None:
+            facts = await gather_facts()
 
     markdown = render_report(facts, events)
     return {"markdown": markdown}

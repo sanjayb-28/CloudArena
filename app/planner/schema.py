@@ -15,6 +15,7 @@ class TechniqueSpec(BaseModel):
     severity: Optional[str] = None
     impl: Dict[str, Any] = Field(default_factory=dict)
     mitre: List[str] = Field(default_factory=list)
+    goal_tags: List[str] = Field(default_factory=list)
 
 
 class RunbookStep(BaseModel):

@@ -8,6 +8,11 @@ safety: read_only
 severity: medium
 impl:
   adapter: sdk.s3.public_policy_audit
+goal_tags:
+  - s3
+  - public
+  - policy
+  - exposure
 mitre:
   - TA0009
 planner:

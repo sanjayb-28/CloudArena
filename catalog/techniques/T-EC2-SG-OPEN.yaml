@@ -8,6 +8,11 @@ safety: read_only
 severity: medium
 impl:
   adapter: sdk.ec2.sg_audit
+goal_tags:
+  - ec2
+  - network
+  - ingress
+  - exposure
 mitre:
   - TA0003
 planner:

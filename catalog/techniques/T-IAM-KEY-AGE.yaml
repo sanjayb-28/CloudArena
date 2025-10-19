@@ -8,6 +8,11 @@ safety: read_only
 severity: medium
 impl:
   adapter: sdk.iam.key_age
+goal_tags:
+  - iam
+  - access
+  - credential
+  - rotation
 mitre:
   - TA0003
 planner:
