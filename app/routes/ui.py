@@ -9,7 +9,6 @@ from fastapi.templating import Jinja2Templates
 from app.auth import get_current_user_optional
 from app.reporter import render_report
 from app.routes import runs as run_routes
-from app.routes.facts import gather_facts
 from app.store import delete_all_runs, get_run, list_events, list_runs
 from app.telemetry.summary import aggregate_step_events
 
@@ -180,26 +179,18 @@ async def ui_run_report(
 ) -> HTMLResponse:
     if not user:
         return HTMLResponse("<p>Authentication required.</p>", status_code=status.HTTP_401_UNAUTHORIZED)
+    record = get_run(run_id)
+    if not record:
+        return HTMLResponse("<p>Run not found.</p>", status_code=status.HTTP_404_NOT_FOUND)
+
     events = list_events(run_id)
     if not events:
         return HTMLResponse("<p>No events yet for this run.</p>")
 
-    record = get_run(run_id)
-    persisted_facts = None
-    if record and isinstance(record.get("facts_json"), str):
-        try:
-            persisted_facts = json.loads(record["facts_json"])
-        except json.JSONDecodeError:
-            persisted_facts = None
+    prepared = _prepare_run_record(record)
+    facts = prepared.get("facts") or {}
 
-    facts = persisted_facts
-    if facts is None:
-        try:
-            facts = await gather_facts()
-        except Exception:  # pylint: disable=broad-except
-            facts = {}
-
-    markdown = render_report(facts or {}, events)
+    markdown = render_report(facts, events)
     html = f"<pre class='report-output'>{markdown}</pre>"
     try:
         import markdown2  # type: ignore[import]

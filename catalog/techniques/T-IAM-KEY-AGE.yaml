@@ -10,8 +10,8 @@ impl:
   adapter: sdk.iam.key_age
 goal_tags:
   - iam
-  - access
   - credential
+  - keys
   - rotation
 mitre:
   - TA0003

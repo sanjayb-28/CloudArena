@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from app.auth import require_auth
 from app.reporter.reporter import render_report
-from app.routes.facts import gather_facts
 from app.store import get_run, list_events
 
 router = APIRouter()
@@ -31,13 +30,16 @@ async def create_report(
     else:
         run_record = get_run(run_id)
         facts = None
-        if run_record and isinstance(run_record.get("facts_json"), str):
-            try:
-                facts = json.loads(run_record["facts_json"])
-            except json.JSONDecodeError:
-                facts = None
+        if run_record:
+            if isinstance(run_record.get("facts"), dict):
+                facts = run_record["facts"]
+            elif isinstance(run_record.get("facts_json"), str):
+                try:
+                    facts = json.loads(run_record["facts_json"])
+                except json.JSONDecodeError:
+                    facts = None
         if facts is None:
-            facts = await gather_facts()
+            facts = {}
 
     markdown = render_report(facts, events)
     return {"markdown": markdown}

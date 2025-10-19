@@ -1,10 +1,13 @@
 """Adapter for invoking Stratus Red Team detonations."""
 
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 COMMAND = "stratus"
 MAP_PATH = Path(__file__).resolve().parents[2] / "catalog" / "techniques_map.yaml"
@@ -43,15 +46,16 @@ def _discover_stratus_adapters() -> Set[str]:
 
 _MISSING_MAPPINGS = sorted(adapter for adapter in _discover_stratus_adapters() if adapter not in _MAP_DATA)
 if _MISSING_MAPPINGS:
-    raise RuntimeError(
-        "Missing Stratus CLI mappings for: " + ", ".join(_MISSING_MAPPINGS)
+    logger.warning(
+        "Stratus mappings missing for adapters: %s. Execution of these techniques will fail until catalog/techniques_map.yaml is updated.",
+        ", ".join(_MISSING_MAPPINGS),
     )
 
 
-def _resolve_technique(identifier: str) -> str:
+def _resolve_technique(identifier: str) -> Optional[str]:
     mapped = _MAP_DATA.get(identifier)
-    if not mapped:
-        raise ValueError(f"Unsupported Stratus technique '{identifier}'")
+    if not mapped and identifier not in _MISSING_MAPPINGS:
+        logger.error("Stratus technique identifier '%s' is not registered in techniques_map.yaml", identifier)
     return mapped
 
 
@@ -68,6 +72,20 @@ def run_stratus(
         raise ValueError(f"Unsupported adapter '{adapter}' for Stratus runner")
 
     resolved = _resolve_technique(technique_id)
+    if not resolved:
+        message = (
+            f"Stratus mapping missing for adapter '{technique_id}'. Update catalog/techniques_map.yaml to include this technique."
+            if technique_id in _MISSING_MAPPINGS
+            else f"Unsupported Stratus technique '{technique_id}'"
+        )
+        logger.error(message)
+        return {
+            "ok": False,
+            "error": message,
+            "summary": message,
+            "severity": "high",
+            "details": {"technique": technique_id},
+        }
 
     bucket = params.get("bucket")
     command = [COMMAND, "detonate", resolved, "--cleanup"]

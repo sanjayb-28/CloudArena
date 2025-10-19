@@ -11,8 +11,8 @@ impl:
 goal_tags:
   - ec2
   - network
+  - security
   - ingress
-  - exposure
 mitre:
   - TA0003
 planner:
