@@ -1,0 +1,41 @@
+<div>
+  {% if step_summaries %}
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Technique</th>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for step in step_summaries %}
+          {% set status_value = step.status or step.phase or "—" %}
+          {% set status_class = status_value | lower | replace(' ', '-') %}
+          <tr>
+            <td>{{ step.index or "—" }}</td>
+            <td>{{ step.technique_id or "—" }}</td>
+            <td>
+              {% if status_value and status_value != "—" %}
+                <span class="status-badge status-{{ status_class }}">
+                  {% if status_class in ["queued", "running"] %}
+                    <span class="spinner"></span>
+                  {% endif %}
+                  {{ status_value | capitalize }}
+                </span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ step.severity or "—" }}</td>
+            <td>{{ step.summary or "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No step events recorded yet.</p>
+  {% endif %}
+</div>

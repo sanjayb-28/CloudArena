@@ -11,6 +11,7 @@ from app.reporter import render_report
 from app.routes import runs as run_routes
 from app.routes.facts import gather_facts
 from app.store import get_run, list_events, list_runs
+from app.telemetry.summary import aggregate_step_events
 
 router = APIRouter()
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -106,6 +107,7 @@ async def ui_run_detail(
     prepared = _prepare_run_record(record)
     runbook = prepared.get("runbook") or {}
     events = list_events(run_id)
+    step_summaries = aggregate_step_events(events)
 
     return templates.TemplateResponse(
         "run_detail.html",
@@ -114,6 +116,7 @@ async def ui_run_detail(
             "run": prepared,
             "runbook": runbook,
             "events": events,
+            "step_summaries": step_summaries,
             "user": user,
         },
     )

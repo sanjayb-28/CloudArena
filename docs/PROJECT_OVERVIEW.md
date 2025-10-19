@@ -1,5 +1,4 @@
 # CloudArena Project Overview
-
 This document captures the current architecture, feature set, and outstanding work for the CloudArena prototype. Treat it as the authoritative snapshot for future iterations or AI-assisted development.
 
 ## 1. Product Vision

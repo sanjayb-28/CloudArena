@@ -48,8 +48,31 @@
   </section>
 
   <section class="card">
-    <div id="events-panel" hx-get="/events/{{ run.run_id }}" hx-trigger="load, every 2s" hx-target="#events-panel" hx-swap="outerHTML">
-      {% include "events_fragment.html" %}
+    <div class="tab-header">
+  <button type="button" class="tab-button" data-tab="summary" onclick="switchTab(event, 'summary')" aria-selected="true">Summary</button>
+  <button type="button" class="tab-button" data-tab="timeline" onclick="switchTab(event, 'timeline')" aria-selected="false">Timeline</button>
+    </div>
+
+    <div id="summary-view" class="tab-panel">
+      <div
+        id="summary-panel"
+        hx-get="/events/{{ run.run_id }}?view=summary"
+        hx-trigger="load, every 5s, summary-refresh"
+        hx-swap="innerHTML"
+      >
+        {% include "events_summary.html" %}
+      </div>
+    </div>
+
+    <div id="timeline-view" class="tab-panel" hidden>
+      <div
+        id="timeline-panel"
+        hx-get="/events/{{ run.run_id }}"
+        hx-trigger="load, every 2s, timeline-refresh"
+        hx-swap="innerHTML"
+      >
+        {% include "events_fragment.html" %}
+      </div>
     </div>
   </section>
 
@@ -60,4 +83,32 @@
     </form>
     <div id="report-output" style="margin-top: 1rem;"></div>
   </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function switchTab(event, tabName) {
+    const buttons = event.currentTarget.parentElement.querySelectorAll('.tab-button');
+    buttons.forEach(btn => btn.setAttribute('aria-selected', btn.dataset.tab === tabName ? 'true' : 'false'));
+
+    const summaryView = document.getElementById('summary-view');
+    const timelineView = document.getElementById('timeline-view');
+    const summaryPanel = document.getElementById('summary-panel');
+    const timelinePanel = document.getElementById('timeline-panel');
+
+    if (tabName === 'summary') {
+      summaryView.hidden = false;
+      timelineView.hidden = true;
+      if (window.htmx && summaryPanel) {
+        window.htmx.trigger(summaryPanel, 'summary-refresh');
+      }
+    } else {
+      summaryView.hidden = true;
+      timelineView.hidden = false;
+      if (window.htmx && timelinePanel) {
+        window.htmx.trigger(timelinePanel, 'timeline-refresh');
+      }
+    }
+  }
+</script>
 {% endblock %}

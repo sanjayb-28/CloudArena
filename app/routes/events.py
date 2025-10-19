@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import require_auth
 from app.models import Event
 from app.store import insert_event, list_events, update_run_status
+from app.telemetry.summary import aggregate_step_events
 
 router = APIRouter()
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -68,6 +69,17 @@ async def get_events(
 ):
     events = list_events(run_id)
     if request.headers.get("HX-Request") == "true":
+        view = request.query_params.get("view", "timeline")
+        if view == "summary":
+            return templates.TemplateResponse(
+                "events_summary.html",
+                {
+                    "request": request,
+                    "run_id": run_id,
+                    "step_summaries": aggregate_step_events(events),
+                },
+                media_type="text/html",
+            )
         return templates.TemplateResponse(
             "events_fragment.html",
             {
@@ -78,4 +90,4 @@ async def get_events(
             media_type="text/html",
         )
 
-    return {"events": events}
+    return {"events": events, "summary": aggregate_step_events(events)}
