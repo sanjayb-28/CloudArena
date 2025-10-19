@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.ingest import SEVERITY_ORDER
 from app.planner import evaluate_predicate
 from app.remediations import get_remediation, list_remediations
 from app.settings import get_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def render_report(facts: dict, events: Iterable[Any]) -> str:
@@ -24,8 +28,8 @@ def render_report(facts: dict, events: Iterable[Any]) -> str:
     if settings.gemini_api_key:
         try:
             return _render_with_gemini(facts, event_dicts)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Gemini report rendering failed: %s", exc)
 
     return _render_static_markdown(facts, event_dicts)
 
@@ -66,22 +70,42 @@ def _render_with_gemini(facts: dict, events: Sequence[dict]) -> str:
     prompt = f"""Rewrite the following CloudArena security exercise summary in concise executive prose.\n\nSummary:\n{summary_plain}\n\nRecommended remediation actions:\n{remediation_plain}\n\nReturn two sections:\n1. Executive Summary (2-3 sentences)\n2. Remediation Recommendations (bullet list)"""
 
     try:
-        import google.generativeai as genai  # type: ignore
+        import google.generativeai as genai
 
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        if not response or not response.text:
+        genai.configure(api_key=settings.gemini_api_key, transport="rest")
+        model_candidates = [
+            "models/gemini-2.5-flash",
+            "models/gemini-flash-latest",
+            "models/gemini-2.0-flash",
+            "models/gemini-pro-latest",
+        ]
+        response = None
+        last_error: Exception | None = None
+        for model_name in model_candidates:
+            try:
+                model = genai.GenerativeModel(model_name=model_name)
+                response = model.generate_content(prompt)
+                logger.info("Gemini report generated with %s", model_name)
+                break
+            except Exception as model_exc:
+                last_error = model_exc
+                logger.warning("Gemini model %s failed: %s", model_name, model_exc)
+        if response is None or not response.text:
+            if last_error is not None:
+                raise last_error
             raise ValueError("Empty response from Gemini")
         generated = response.text.strip()
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc: 
         raise RuntimeError(f"Gemini generation failed: {exc}") from exc
+
+    logger.info("Generated Gemini executive summary for report")
 
     sections = [
         "# CloudArena Run Report",
+        "## Executive Summary (Gemini)",
         generated,
         "",
-    findings_block,
+        findings_block,
         "",
         remediation_md,
         "",
