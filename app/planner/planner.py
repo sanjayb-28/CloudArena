@@ -1,11 +1,12 @@
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import ValidationError
 
 from app.planner.schema import Runbook, RunbookStep, TechniqueSpec
+from app.planner import rules as planner_rules
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,18 @@ def get_technique_spec(technique_id: str) -> Optional[TechniqueSpec]:
     return _load_techniques().get(technique_id)
 
 
+def get_technique_catalog() -> Dict[str, TechniqueSpec]:
+    """Return a copy of the loaded technique catalog keyed by identifier."""
+
+    return dict(_load_techniques())
+
+
+def list_technique_specs() -> List[TechniqueSpec]:
+    """Return all registered technique specs in catalog order."""
+
+    return list(_load_techniques().values())
+
+
 def _services_present(facts: Dict[str, Any]) -> Dict[str, Any]:
     return facts.get("services", {}) or {}
 
@@ -90,7 +103,7 @@ def _requirements_met(
     predicates = requires.get("predicates") or []
     for predicate in predicates:
         try:
-            predicate_ok = _evaluate_predicate(predicate, facts, context or {})
+            predicate_ok = evaluate_predicate(predicate, facts, context or {})
         except ValueError as exc:
             logger.error(
                 "Technique %s predicate '%s' evaluation error: %s",
@@ -111,7 +124,7 @@ def _requirements_met(
     return True
 
 
-def _evaluate_predicate(expression: str, facts: Dict[str, Any], context: Dict[str, Any]) -> bool:
+def evaluate_predicate(expression: str, facts: Dict[str, Any], context: Dict[str, Any]) -> bool:
     expr = (expression or "").strip()
     if not expr:
         return True
@@ -210,38 +223,47 @@ def plan(facts: Dict[str, Any], goals: Optional[str] = None) -> Runbook:
     """Construct a runbook of techniques based on observed facts."""
 
     runbook = Runbook(goals=goals)
-    techniques = _load_techniques()
-    services = _services_present(facts)
+    techniques = get_technique_catalog()
+    account_id = facts.get("account")
+    region = facts.get("region")
 
-    # Prioritize public S3 access simulations.
-    s3_spec = techniques.get("T-S3-001")
-    if s3_spec:
-        for bucket in services.get("s3", []) or []:
-            context = {"bucket": bucket}
-            if not _requirements_met(s3_spec, facts, context=context):
-                continue
-            params = _merge_params(
-                s3_spec,
-                {"bucket": bucket.get("name")},
-            )
-            runbook.add_step(RunbookStep(technique_id=s3_spec.id, params=params))
+    common_params = {
+        key: value
+        for key, value in {
+            "account": account_id,
+            "region": region,
+        }.items()
+        if value is not None
+    }
 
-    def _enqueue_if_applicable(technique_id: str) -> None:
-        spec = techniques.get(technique_id)
-        if not spec:
-            logger.debug("Technique %s not found in catalog.", technique_id)
-            return
-        if not _requirements_met(spec, facts):
-            logger.debug("Technique %s requirements not met.", technique_id)
-            return
-        params = _merge_params(spec)
-        runbook.add_step(RunbookStep(technique_id=technique_id, params=params))
+    steps_with_priority: list[tuple[int, RunbookStep, str]] = []
 
-    _enqueue_if_applicable("T-S3-PUBLIC-POLICY")
-    _enqueue_if_applicable("T-EC2-SG-OPEN")
-    _enqueue_if_applicable("T-IAM-KEY-AGE")
-    _enqueue_if_applicable("T-KMS-ROTATION")
-    _enqueue_if_applicable("T-IAM-ENUM")
-    _enqueue_if_applicable("T-ECR-ENUM")
+    for spec in sorted(techniques.values(), key=lambda item: item.id):
+        planner_config = spec.planner or {}
+        if not planner_config.get("auto"):
+            continue
+
+        rule_name = planner_config.get("rule")
+        rule = planner_rules.get_rule(rule_name)
+
+        base_params = {**common_params}
+        static_params = planner_config.get("params") or {}
+        if static_params:
+            base_params.update(static_params)
+
+        generated_params = rule(spec, facts, common_params, _requirements_met)
+        if not generated_params:
+            continue
+
+        priority = int(planner_config.get("priority", 100))
+        for overrides in generated_params:
+            combined: Dict[str, Any] = {**base_params}
+            if overrides:
+                combined.update({k: v for k, v in overrides.items() if v is not None})
+            params = _merge_params(spec, combined)
+            steps_with_priority.append((priority, RunbookStep(technique_id=spec.id, params=params), spec.id))
+
+    for _, step, _ in sorted(steps_with_priority, key=lambda item: (item[0], item[2])):
+        runbook.add_step(step)
 
     return runbook

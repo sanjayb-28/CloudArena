@@ -4,13 +4,35 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+from app.ingest import SEVERITY_ORDER
 
-SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
+HandlerFunc = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+
+
+_HANDLERS: Dict[str, HandlerFunc] = {}
+
+
+def register_handler(identifier: str) -> Callable[[HandlerFunc], HandlerFunc]:
+    """Decorator to register an SDK handler for a catalog technique."""
+
+    def decorator(func: HandlerFunc) -> HandlerFunc:
+        if identifier in _HANDLERS:
+            raise ValueError(f"Handler already registered for '{identifier}'")
+        _HANDLERS[identifier] = func
+        return func
+
+    return decorator
+
+
+def available_handlers() -> List[str]:
+    """Return the list of registered handler identifiers."""
+
+    return sorted(_HANDLERS.keys())
 
 
 def _overall_severity(findings: List[Dict[str, Any]], default: str = "informational") -> str:
@@ -276,69 +298,85 @@ def _audit_s3_public_policies() -> List[Dict[str, Any]]:
     return findings
 
 
-def run_sdk(technique_id: str, adapter: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def run_sdk(identifier: str, adapter: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a technique implemented via AWS SDK primitives."""
 
     if adapter != "sdk":
         raise ValueError(f"Unsupported adapter '{adapter}' for SDK runner")
 
+    handler = _HANDLERS.get(identifier)
+    if not handler:
+        raise ValueError(f"Unsupported SDK technique '{identifier}'")
+
     try:
-        if technique_id == "sdk.iam.enum":
-            roles = _list_iam_roles()
-            summary = f"Enumerated {len(roles)} IAM roles"
-            details = {"role_count": len(roles), "roles": roles[:50]}
-            return _result_ok(summary, severity="informational", details=details, extras={"roles": roles})
-
-        if technique_id == "sdk.ecr.enum":
-            repos = _list_ecr_repositories()
-            summary = f"Enumerated {len(repos)} ECR repositories"
-            details = {"repository_count": len(repos), "repositories": repos[:50]}
-            return _result_ok(summary, severity="informational", details=details, extras={"repositories": repos})
-
-        if technique_id == "sdk.ec2.sg_audit":
-            findings = _audit_security_groups()
-            summary = (
-                "No internet-exposed security groups detected"
-                if not findings
-                else f"Identified {len(findings)} security groups with 0.0.0.0/0 ingress"
-            )
-            details = {"finding_count": len(findings)}
-            severity = "informational" if not findings else "medium"
-            return _result_ok(summary, findings=findings, details=details, severity=severity)
-
-        if technique_id == "sdk.kms.rotation_audit":
-            findings = _audit_kms_rotation()
-            summary = (
-                "All KMS keys have rotation enabled"
-                if not findings
-                else f"{len(findings)} KMS keys require rotation attention"
-            )
-            details = {"finding_count": len(findings)}
-            severity = "informational" if not findings else "medium"
-            return _result_ok(summary, findings=findings, details=details, severity=severity)
-
-        if technique_id == "sdk.iam.key_age":
-            findings = _audit_iam_key_age()
-            summary = (
-                "No stale IAM access keys detected"
-                if not findings
-                else f"{len(findings)} IAM access keys exceed age policy"
-            )
-            details = {"finding_count": len(findings)}
-            severity = "informational" if not findings else "medium"
-            return _result_ok(summary, findings=findings, details=details, severity=severity)
-
-        if technique_id == "sdk.s3.public_policy_audit":
-            findings = _audit_s3_public_policies()
-            summary = (
-                "No publicly accessible S3 bucket policies detected"
-                if not findings
-                else f"{len(findings)} S3 buckets expose public access via policy"
-            )
-            details = {"finding_count": len(findings)}
-            severity = "informational" if not findings else "medium"
-            return _result_ok(summary, findings=findings, details=details, severity=severity)
+        return handler(identifier, params or {})
     except (BotoCoreError, ClientError) as exc:
         return _result_error(str(exc), severity="high")
 
-    raise ValueError(f"Unsupported SDK technique '{technique_id}'")
+
+@register_handler("sdk.iam.enum")
+def _handle_iam_enum(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    roles = _list_iam_roles()
+    summary = f"Enumerated {len(roles)} IAM roles"
+    details = {"role_count": len(roles), "roles": roles[:50]}
+    return _result_ok(summary, severity="informational", details=details, extras={"roles": roles})
+
+
+@register_handler("sdk.ecr.enum")
+def _handle_ecr_enum(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    repos = _list_ecr_repositories()
+    summary = f"Enumerated {len(repos)} ECR repositories"
+    details = {"repository_count": len(repos), "repositories": repos[:50]}
+    return _result_ok(summary, severity="informational", details=details, extras={"repositories": repos})
+
+
+@register_handler("sdk.ec2.sg_audit")
+def _handle_ec2_sg_audit(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    findings = _audit_security_groups()
+    summary = (
+        "No internet-exposed security groups detected"
+        if not findings
+        else f"Identified {len(findings)} security groups with 0.0.0.0/0 ingress"
+    )
+    details = {"finding_count": len(findings)}
+    severity = "informational" if not findings else "medium"
+    return _result_ok(summary, findings=findings, details=details, severity=severity)
+
+
+@register_handler("sdk.kms.rotation_audit")
+def _handle_kms_rotation(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    findings = _audit_kms_rotation()
+    summary = (
+        "All KMS keys have rotation enabled"
+        if not findings
+        else f"{len(findings)} KMS keys require rotation attention"
+    )
+    details = {"finding_count": len(findings)}
+    severity = "informational" if not findings else "medium"
+    return _result_ok(summary, findings=findings, details=details, severity=severity)
+
+
+@register_handler("sdk.iam.key_age")
+def _handle_iam_key_age(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    findings = _audit_iam_key_age()
+    summary = (
+        "No stale IAM access keys detected"
+        if not findings
+        else f"{len(findings)} IAM access keys exceed age policy"
+    )
+    details = {"finding_count": len(findings)}
+    severity = "informational" if not findings else "medium"
+    return _result_ok(summary, findings=findings, details=details, severity=severity)
+
+
+@register_handler("sdk.s3.public_policy_audit")
+def _handle_s3_public_policy(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
+    findings = _audit_s3_public_policies()
+    summary = (
+        "No publicly accessible S3 bucket policies detected"
+        if not findings
+        else f"{len(findings)} S3 buckets expose public access via policy"
+    )
+    details = {"finding_count": len(findings)}
+    severity = "informational" if not findings else "medium"
+    return _result_ok(summary, findings=findings, details=details, severity=severity)

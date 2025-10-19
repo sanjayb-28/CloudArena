@@ -122,6 +122,33 @@ async def ui_run_detail(
     )
 
 
+@router.get("/ui/runs/{run_id}/header", response_class=HTMLResponse)
+async def ui_run_header(
+    request: Request,
+    run_id: str,
+    user: Optional[Dict[str, Any]] = Depends(get_current_user_optional),
+) -> HTMLResponse:
+    if not user:
+        return HTMLResponse("<p>Authentication required.</p>", status_code=status.HTTP_401_UNAUTHORIZED)
+
+    record = get_run(run_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+
+    prepared = _prepare_run_record(record)
+    runbook = prepared.get("runbook") or {}
+
+    return templates.TemplateResponse(
+        "run_header.html",
+        {
+            "request": request,
+            "run": prepared,
+            "runbook": runbook,
+            "user": user,
+        },
+    )
+
+
 @router.post("/ui/runs/{run_id}/reports", response_class=HTMLResponse)
 async def ui_run_report(
     run_id: str,

@@ -15,6 +15,12 @@ impl:
   adapter: stratus.aws.s3.public_read_sim
 mitre:
   - TA0010:T1530
+planner:
+  auto: true
+  priority: 10
+  rule: s3_public_simulation
+report:
+  summary_rule: generic
 evidence:
   expects:
     - cloudtrail:GetObject

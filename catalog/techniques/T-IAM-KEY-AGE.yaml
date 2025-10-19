@@ -10,6 +10,12 @@ impl:
   adapter: sdk.iam.key_age
 mitre:
   - TA0003
+planner:
+  auto: true
+  priority: 50
+  rule: simple_auto
+report:
+  summary_rule: iam_key_age
 params: {}
 evidence:
   expects:

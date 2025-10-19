@@ -9,6 +9,8 @@ class TechniqueSpec(BaseModel):
     id: str
     requires: Dict[str, Any] = Field(default_factory=dict)
     params: Dict[str, Any] = Field(default_factory=dict)
+    planner: Dict[str, Any] = Field(default_factory=dict)
+    report: Dict[str, Any] = Field(default_factory=dict)
     safety: Any | None = None
     severity: Optional[str] = None
     impl: Dict[str, Any] = Field(default_factory=dict)

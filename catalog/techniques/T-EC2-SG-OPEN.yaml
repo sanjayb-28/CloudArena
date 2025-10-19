@@ -10,6 +10,12 @@ impl:
   adapter: sdk.ec2.sg_audit
 mitre:
   - TA0003
+planner:
+  auto: true
+  priority: 40
+  rule: simple_auto
+report:
+  summary_rule: ec2_sg_open
 params: {}
 evidence:
   expects:

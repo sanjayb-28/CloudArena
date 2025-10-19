@@ -1,0 +1,6 @@
+id: T-KMS-ROTATION
+summary: Enable automatic rotation for customer-managed KMS keys and review keys with rotation disabled.
+actions:
+  - Turn on annual rotation for eligible keys and document exceptions.
+  - Replace static keys with data keys generated per workload where feasible.
+  - Monitor key rotation status using AWS Config managed rules or Security Hub controls.

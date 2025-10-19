@@ -10,7 +10,8 @@ import httpx
 
 from app.adapters import sdk as sdk_adapter
 from app.adapters import stratus as stratus_adapter
-from app.planner.planner import _load_techniques
+from app.ingest import normalize_result
+from app.planner import get_technique_catalog
 from app.planner.schema import TechniqueSpec
 from app.settings import get_settings
 from .celery_app import celery_app
@@ -18,7 +19,6 @@ from .celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 STEP_TIMEOUT_SECONDS = 120
-SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
 
 
 class StepTimeoutError(Exception):
@@ -170,7 +170,7 @@ def ping() -> str:
 @celery_app.task(name="cloudarena.run.execute_runbook", acks_late=False, max_retries=0)
 def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
     steps: List[Dict[str, Any]] = runbook.get("steps", [])
-    techniques = _load_techniques()
+    techniques = get_technique_catalog()
 
     current_index: Optional[int] = None
     current_technique: Optional[str] = None
@@ -232,7 +232,7 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
                     artifacts.append({"type": "cloudtrail", "uri": cloudtrail_uri})
 
                 if result.get("ok", False):
-                    effective_severity, summary, details, result_artifacts = _normalize_result(
+                    effective_severity, summary, details, result_artifacts = normalize_result(
                         technique_id,
                         result,
                         severity,
@@ -333,65 +333,3 @@ def execute_runbook(run_id: str, runbook: Dict[str, Any]) -> str:
         )
 
     return final_status
-
-
-def _normalize_result(
-    technique_id: Optional[str],
-    result: Dict[str, Any],
-    default_severity: Optional[str],
-) -> Tuple[Optional[str], Optional[str], Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-    raw_findings = result.get("findings") or []
-    findings = [_coerce_finding(item) for item in raw_findings]
-    summary = result.get("summary")
-    details = result.get("details") if isinstance(result.get("details"), dict) else None
-    artifacts: List[Dict[str, Any]] = []
-
-    result_severity = result.get("severity")
-    baseline_severity = result_severity or default_severity or "informational"
-    effective_severity = _max_severity(findings, baseline_severity)
-
-    if findings:
-        summary = summary or _summarize_findings(technique_id, findings)
-        if details is None:
-            details = {"findings": findings[:5]}
-        artifacts.append({"type": "finding_count", "uri": str(len(findings))})
-    elif result.get("stdout"):
-        summary = summary or str(result["stdout"])[:200]
-    else:
-        summary = summary or "No findings detected"
-
-    return effective_severity, summary, details, artifacts
-
-
-def _coerce_finding(finding: Any) -> Dict[str, Any]:
-    if isinstance(finding, dict):
-        return finding
-    return {"summary": str(finding)}
-
-
-def _max_severity(findings: List[Dict[str, Any]], default: Optional[str]) -> Optional[str]:
-    highest = (default or "informational").lower()
-    for finding in findings:
-        sev = (finding.get("severity") or highest).lower()
-        if SEVERITY_ORDER.get(sev, 0) > SEVERITY_ORDER.get(highest, 0):
-            highest = sev
-    return highest
-
-
-def _summarize_findings(technique_id: Optional[str], findings: List[Dict[str, Any]]) -> str:
-    count = len(findings)
-    if technique_id == "T-EC2-SG-OPEN":
-        ports = sorted({finding.get("evidence", {}).get("from_port") for finding in findings if finding.get("evidence")})
-        port_list = ", ".join(str(port) for port in ports if port) or "various ports"
-        return f"{count} security groups allow 0.0.0.0/0 (ports: {port_list})"
-    if technique_id == "T-S3-PUBLIC-POLICY":
-        buckets = [finding.get("resource") for finding in findings if finding.get("resource")]
-        bucket_list = ", ".join(buckets[:3])
-        more = "" if len(buckets) <= 3 else f" (+{len(buckets) - 3} more)"
-        return f"{count} buckets with public access: {bucket_list}{more}"
-    if technique_id == "T-IAM-KEY-AGE":
-        max_age = max((finding.get("evidence", {}).get("age_days", 0) for finding in findings), default=0)
-        return f"{count} IAM access keys older than 90 days (oldest {max_age} days)"
-    if technique_id == "T-KMS-ROTATION":
-        return f"{count} KMS keys with rotation disabled"
-    return f"{count} findings detected" if count else "No findings detected"

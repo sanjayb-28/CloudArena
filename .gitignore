@@ -39,3 +39,6 @@ build/
 
 # Local runtime data mounted into containers (DB, artifacts, caches)
 .data/
+
+# Local-only documentation
+docs/

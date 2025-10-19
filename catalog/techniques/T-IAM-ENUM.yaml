@@ -10,3 +10,9 @@ impl:
   adapter: sdk.iam.enum
 mitre:
   - TA0003
+planner:
+  auto: true
+  priority: 60
+  rule: simple_auto
+report:
+  summary_rule: generic

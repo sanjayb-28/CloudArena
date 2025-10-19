@@ -1,29 +1,18 @@
 <div id="events-panel">
   <h3>Event Stream</h3>
   {% if events %}
-    <table>
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Technique</th>
-          <th>Phase</th>
-          <th>Status</th>
-          <th>Severity</th>
-          <th>Resource</th>
-          <th>Summary</th>
-          <th>Artifacts</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in events %}
-          {% set payload = event.payload or {} %}
-          {% set phase = event.phase or payload.phase %}
-          {% set status_value = event.status or payload.status %}
-          <tr>
-            <td>{{ event.ts }}</td>
-            <td>{{ event.technique_id or payload.technique_id or "—" }}</td>
-            <td class="{% if phase == 'error' %}text-error{% endif %}">{{ phase or "—" }}</td>
-            <td>
+    <ol class="timeline">
+      {% for event in events %}
+        {% set payload = event.payload or {} %}
+        {% set phase = event.phase or payload.phase %}
+        {% set status_value = event.status or payload.status %}
+        {% set severity = event.severity or payload.severity %}
+        {% set technique = event.technique_id or payload.technique_id %}
+        <li class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <header class="timeline-header">
+              <span class="timeline-time">{{ event.ts }}</span>
               {% if status_value %}
                 {% set status_class = status_value | lower | replace(' ', '-') %}
                 <span class="status-badge status-{{ status_class }}">
@@ -32,13 +21,15 @@
                   {% endif %}
                   {{ status_value | capitalize }}
                 </span>
-              {% else %}
-                —
               {% endif %}
-            </td>
-            <td>{{ event.severity or payload.severity or "—" }}</td>
-            <td>{{ event.resource or payload.resource or "—" }}</td>
-            <td>
+            </header>
+            <div class="timeline-meta">
+              <span class="timeline-technique">{{ technique or "—" }}</span>
+              <span class="timeline-phase {% if phase == 'error' %}text-error{% endif %}">Phase: {{ phase or "—" }}</span>
+              <span class="timeline-severity">Severity: {{ severity or "—" }}</span>
+              <span class="timeline-resource">Resource: {{ event.resource or payload.resource or "—" }}</span>
+            </div>
+            <p class="timeline-summary">
               {% if event.summary %}
                 {{ event.summary }}
               {% elif payload.summary %}
@@ -46,42 +37,39 @@
               {% elif event.details and event.details.error %}
                 {{ event.details.error }}
               {% else %}
-                —
+                No summary available.
               {% endif %}
-              {% if event.details and event.details.findings %}
-                <details>
-                  <summary>Details</summary>
-                  <pre>{{ event.details.findings | tojson(indent=2) }}</pre>
-                </details>
-              {% elif event.details %}
-                <details>
-                  <summary>Details</summary>
-                  <pre>{{ event.details | tojson(indent=2) }}</pre>
-                </details>
-              {% endif %}
-            </td>
-            <td>
-              {% if event.artifacts %}
+            </p>
+            {% if event.details %}
+              <details class="timeline-details">
+                <summary>Details</summary>
+                <pre>{{ event.details | tojson(indent=2) }}</pre>
+              </details>
+            {% elif payload.details %}
+              <details class="timeline-details">
+                <summary>Details</summary>
+                <pre>{{ payload.details | tojson(indent=2) }}</pre>
+              </details>
+            {% endif %}
+            {% if event.artifacts %}
+              <div class="timeline-artifacts">
+                <strong>Artifacts:</strong>
                 <ul>
                   {% for artifact in event.artifacts %}
                     <li>
-                      <code>{{ artifact.type }}</code>:
+                      <code>{{ artifact.type }}</code>
                       {% if artifact.uri %}
-                        <a href="{{ artifact.uri }}" target="_blank" rel="noopener">{{ artifact.uri }}</a>
-                      {% else %}
-                        —
+                        — <a href="{{ artifact.uri }}" target="_blank" rel="noopener">{{ artifact.uri }}</a>
                       {% endif %}
                     </li>
                   {% endfor %}
                 </ul>
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+              </div>
+            {% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
   {% else %}
     <p>No events recorded yet.</p>
   {% endif %}

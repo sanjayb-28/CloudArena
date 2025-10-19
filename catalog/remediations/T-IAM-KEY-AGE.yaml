@@ -1,0 +1,6 @@
+id: T-IAM-KEY-AGE
+summary: Rotate aging IAM access keys and migrate workloads toward temporary credentials.
+actions:
+  - Identify keys older than the organization policy and schedule rotation or removal.
+  - Transition long-lived credentials to IAM roles or AWS STS session tokens.
+  - Enable access analyzer or credential reports to continuously audit key age.

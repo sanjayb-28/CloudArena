@@ -4,9 +4,10 @@ import json
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from app.ingest import SEVERITY_ORDER
+from app.planner import evaluate_predicate
+from app.remediations import get_remediation, list_remediations
 from app.settings import get_settings
-
-SEVERITY_ORDER = {"informational": 0, "low": 1, "medium": 2, "high": 3}
 
 
 def render_report(facts: dict, events: Iterable[Any]) -> str:
@@ -255,14 +256,6 @@ def _format_evidence(evidence: Any, limit: int = 160) -> str:
 
 
 def _build_remediation_section(facts: dict, steps: List[Dict[str, Any]]) -> Tuple[str, str]:
-    remediation_map = {
-        "T-EC2-SG-OPEN": "Restrict security group source CIDRs, remove 0.0.0.0/0 for admin ports, and prefer AWS Systems Manager Session Manager for admin access.",
-        "T-KMS-ROTATION": "Enable automatic rotation on KMS keys and monitor rotation status via AWS Config.",
-        "T-IAM-KEY-AGE": "Rotate legacy IAM access keys and migrate workloads to IAM roles or temporary credentials.",
-        "T-S3-PUBLIC-POLICY": "Enable S3 Block Public Access, review bucket policies, and enforce SCPs to prevent public grants.",
-        "T-S3-001": "Ensure S3 Block Public Access is enabled and remove public object ACLs unless explicitly required.",
-    }
-
     actions: List[str] = []
     actions_plain: List[str] = []
     seen = set()
@@ -273,20 +266,31 @@ def _build_remediation_section(facts: dict, steps: List[Dict[str, Any]]) -> Tupl
             continue
         findings = record.get("findings") or []
         if findings:
-            tip = remediation_map.get(technique)
-            if tip:
-                actions.append(f"- **{technique}**: {tip}")
-                actions_plain.append(f"{technique}: {tip}")
+            guide = get_remediation(technique)
+            if guide:
+                message = guide.merged_summary()
+                actions.append(f"- **{technique}**: {message}")
+                actions_plain.append(f"{technique}: {message}")
                 seen.add(technique)
 
     services = facts.get("services", {}) or {}
     s3_buckets = services.get("s3", []) or []
     public_buckets = [bucket for bucket in s3_buckets if bucket.get("public")]
-    if public_buckets and "T-S3-001" not in seen:
-        tip = remediation_map.get("T-S3-001")
-        if tip:
-            actions.append(f"- **T-S3-001**: {tip}")
-            actions_plain.append(f"T-S3-001: {tip}")
+
+    condition_context = {
+        "public_s3_buckets": bool(public_buckets),
+        "public_s3_bucket_count": len(public_buckets),
+        "public_s3_bucket_names": [bucket.get("name") for bucket in public_buckets if bucket.get("name")],
+    }
+
+    for guide in list_remediations():
+        if guide.id in seen or not guide.conditions:
+            continue
+        if _conditions_match(guide.conditions, facts, condition_context):
+            message = guide.merged_summary()
+            actions.append(f"- **{guide.id}**: {message}")
+            actions_plain.append(f"{guide.id}: {message}")
+            seen.add(guide.id)
 
     if not actions:
         actions.append("- No immediate remediation actions identified from this run.")
@@ -332,3 +336,65 @@ def _summarize_s3(facts: dict) -> str:
         public = "yes" if bucket.get("public") else "no"
         lines.append(f"| {name} | {public} |")
     return "\n".join(lines)
+
+
+def _conditions_match(conditions: Dict[str, Any], facts: dict, context: Dict[str, Any]) -> bool:
+    if not conditions:
+        return False
+
+    services = conditions.get("services")
+    if services:
+        observed = facts.get("services", {}) or {}
+        for service in services:
+            value = observed.get(service)
+            if value in (None, [], False):
+                return False
+
+    predicates = conditions.get("predicates")
+    if predicates:
+        for predicate in predicates:
+            try:
+                if not evaluate_predicate(predicate, facts, context):
+                    return False
+            except ValueError:
+                return False
+
+    for key, expected in conditions.items():
+        if key in {"services", "predicates"}:
+            continue
+        value = _resolve_condition_value(key, facts, context)
+        if isinstance(expected, bool):
+            if bool(value) != expected:
+                return False
+        elif expected is None:
+            if value is not None:
+                return False
+        else:
+            if value != expected:
+                return False
+
+    return True
+
+
+def _resolve_condition_value(path: str, facts: dict, context: Dict[str, Any]) -> Any:
+    if not path:
+        return None
+    if path in context:
+        return context[path]
+
+    parts = path.split(".")
+    current: Any = facts
+    for part in parts:
+        if isinstance(current, dict):
+            current = current.get(part)
+        elif isinstance(current, list):
+            try:
+                index = int(part)
+            except ValueError:
+                return None
+            if index < 0 or index >= len(current):
+                return None
+            current = current[index]
+        else:
+            return None
+    return current

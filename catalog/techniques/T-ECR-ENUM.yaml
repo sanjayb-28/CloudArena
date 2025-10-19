@@ -10,3 +10,9 @@ impl:
   adapter: sdk.ecr.enum
 mitre:
   - TA0007
+planner:
+  auto: true
+  priority: 70
+  rule: simple_auto
+report:
+  summary_rule: generic

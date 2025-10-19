@@ -1,0 +1,6 @@
+id: T-EC2-SG-OPEN
+summary: Restrict security group ingress to trusted CIDRs and remove 0.0.0.0/0 exposure for administrative ports.
+actions:
+  - Replace public ingress rules with specific corporate CIDRs or AWS PrivateLink endpoints.
+  - Use AWS Systems Manager Session Manager instead of direct SSH/RDP over the internet.
+  - Enforce continuous monitoring via AWS Config or Security Hub to detect newly opened ports.

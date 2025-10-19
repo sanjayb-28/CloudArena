@@ -10,6 +10,12 @@ impl:
   adapter: sdk.kms.rotation_audit
 mitre:
   - TA0003
+planner:
+  auto: true
+  priority: 55
+  rule: simple_auto
+report:
+  summary_rule: kms_rotation
 params: {}
 evidence:
   expects:

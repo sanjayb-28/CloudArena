@@ -1,0 +1,8 @@
+id: T-S3-001
+summary: Remediate publicly readable S3 objects discovered during simulations.
+actions:
+  - Revoke public ACLs on affected objects and confirm desired sharing model.
+  - Require authenticated sessions for presigned URL distribution or use CloudFront signed URLs.
+  - Verify Block Public Access remains enabled and add guardrails for future uploads.
+conditions:
+  public_s3_buckets: true

@@ -10,6 +10,12 @@ impl:
   adapter: sdk.s3.public_policy_audit
 mitre:
   - TA0009
+planner:
+  auto: true
+  priority: 20
+  rule: s3_policy_audit
+report:
+  summary_rule: s3_public_policy
 params: {}
 evidence:
   expects:

@@ -1,0 +1,8 @@
+id: T-S3-PUBLIC-POLICY
+summary: Block unintended public access to S3 buckets and harden bucket policies.
+actions:
+  - Enable S3 Block Public Access at the account and bucket level.
+  - Remove policy statements that grant access to AllUsers or anonymous principals.
+  - Apply preventive SCPs or IAM service control policies to deny future public grants.
+conditions:
+  public_s3_buckets: true
