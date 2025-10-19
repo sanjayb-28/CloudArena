@@ -1,11 +1,11 @@
 # CloudArena
 
-CloudArena is a modular platform for orchestrating agentic security exercises inside a fully managed AWS sandbox. The project combines Python-based planning and execution bots, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely and reproduce findings consistently.
+CloudArena is a modular platform for orchestrating scripted AWS security exercises inside a fully managed sandbox. The project combines a deterministic Python planner, Celery workers, curated ATT&CK-based content, and automated reporting to help teams practice cloud defense safely and reproduce findings consistently.
 
 ## Project Goals
 
 - Spin up ephemeral AWS environments that mirror production-like stacks without risking real assets.
-- Drive scenario execution through adaptive Python agents that evaluate the environment and select safe simulation actions.
+- Drive scenario execution through deterministic Python runbooks that evaluate gathered facts and launch safe simulation actions.
 - Map detections, attacker behaviors, and defensive gaps to MITRE ATT&CK techniques.
 - Produce human-friendly remediation reports backed by Gemini-generated narratives.
 - Integrate Auth0 for authentication while keeping the stack lightweight (FastAPI, SQLite, Redis) so teams can demo without extra cloud services.
