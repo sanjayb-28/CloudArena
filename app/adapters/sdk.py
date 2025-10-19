@@ -218,20 +218,24 @@ def _audit_iam_key_age() -> List[Dict[str, Any]]:
                 if create_date is None:
                     continue
                 age_days = (now - create_date).days
-                if age_days > 90:
-                    severity = "high" if age_days > 180 else "medium"
-                    findings.append(
-                        {
-                            "resource": f"{user_name}:{key_id}",
-                            "issue": f"IAM access key age {age_days} days",
-                            "severity": severity,
-                            "evidence": {
-                                "user": user_name,
-                                "access_key_id": key_id,
-                                "age_days": age_days,
-                            },
-                        }
-                    )
+                severity = "informational"
+                if age_days > 180:
+                    severity = "high"
+                elif age_days > 90:
+                    severity = "medium"
+
+                findings.append(
+                    {
+                        "resource": f"{user_name}:{key_id}",
+                        "issue": f"IAM access key age {age_days} days",
+                        "severity": severity,
+                        "evidence": {
+                            "user": user_name,
+                            "access_key_id": key_id,
+                            "age_days": age_days,
+                        },
+                    }
+                )
     return findings
 
 
@@ -358,14 +362,42 @@ def _handle_kms_rotation(identifier: str, params: Dict[str, Any]) -> Dict[str, A
 
 @register_handler("sdk.iam.key_age")
 def _handle_iam_key_age(identifier: str, params: Dict[str, Any]) -> Dict[str, Any]:  # noqa: ARG001
-    findings = _audit_iam_key_age()
+    max_age_days = params.get("max_age_days")
+    try:
+        threshold = int(max_age_days) if max_age_days is not None else 90
+    except (TypeError, ValueError):
+        threshold = 90
+
+    candidate_findings = _audit_iam_key_age()
+    findings: List[Dict[str, Any]] = []
+
+    for finding in candidate_findings:
+        evidence = finding.get("evidence", {})
+        age = evidence.get("age_days")
+        if not isinstance(age, (int, float)):
+            continue
+        if age >= threshold:
+            if age >= 180:
+                finding["severity"] = "high"
+            elif age >= max(threshold, 90):
+                finding["severity"] = "medium"
+            else:
+                # Sandbox thresholds may lower the bar; mark as medium to highlight risk.
+                finding["severity"] = "medium"
+                finding["issue"] = f"IAM access key age {age} days (threshold {threshold})"
+            findings.append(finding)
+
+    findings.sort(key=lambda item: item.get("evidence", {}).get("age_days", 0), reverse=True)
     summary = (
         "No stale IAM access keys detected"
         if not findings
-        else f"{len(findings)} IAM access keys exceed age policy"
+        else f"{len(findings)} IAM access keys exceed age policy (>= {threshold} days)"
     )
     details = {"finding_count": len(findings)}
-    severity = "informational" if not findings else "medium"
+    severity = "informational" if not findings else max(
+        (finding.get("severity", "medium") for finding in findings),
+        key=lambda level: SEVERITY_ORDER.get(str(level).lower(), 0),
+    )
     return _result_ok(summary, findings=findings, details=details, severity=severity)
 
 

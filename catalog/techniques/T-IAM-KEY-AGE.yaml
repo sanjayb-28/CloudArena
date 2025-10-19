@@ -14,6 +14,8 @@ planner:
   auto: true
   priority: 50
   rule: simple_auto
+  params:
+    max_age_days: 0
 report:
   summary_rule: iam_key_age
 params: {}
